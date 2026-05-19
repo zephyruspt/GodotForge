@@ -110,7 +110,7 @@ if (savedLocale === "en" || savedLocale === "pt") {
   locale.value = savedLocale;
 }
 
-const sections = ["projects", "editors", "releases", "settings"] as const;
+const sections = ["projects", "editors", "settings"] as const;
 const activeSection = ref<(typeof sections)[number]>("projects");
 const activeProjectId = ref("");
 const busyAction = ref("");
@@ -513,6 +513,10 @@ function saveSettings() {
   return runAction(t("status.pathsSaved"), () => invoke<HubState>("save_settings", { request: settingsForm }));
 }
 
+function restoreDefaultSettings() {
+  return runAction(t("status.settingsRestored"), () => invoke<HubState>("restore_default_settings"));
+}
+
 function setPathValue(target: PathTarget, value: string) {
   const path = value.trim();
   if (!path) return;
@@ -740,7 +744,6 @@ function sectionDescription(section: (typeof sections)[number]) {
   const descriptions: Record<(typeof sections)[number], string> = {
     projects: t("sections.projectsDescription"),
     editors: t("sections.editorsDescription"),
-    releases: t("sections.releasesDescription"),
     settings: t("sections.settingsDescription"),
   };
 
@@ -751,7 +754,6 @@ function sectionTitle(section: (typeof sections)[number]) {
   const titles: Record<(typeof sections)[number], string> = {
     projects: t("sections.projectsTitle"),
     editors: t("sections.editorsTitle"),
-    releases: t("sections.releasesTitle"),
     settings: t("sections.settingsTitle"),
   };
 
@@ -776,10 +778,10 @@ watch(selectedTheme, (theme) => {
   localStorage.setItem(themeStorageKey, theme);
 });
 
-onMounted(() => {
+onMounted(async () => {
   document.documentElement.dataset.theme = selectedTheme.value;
-  loadSystemProfile();
-  loadState();
+  await loadSystemProfile();
+  await Promise.all([loadState(), loadReleases()]);
 });
 </script>
 
@@ -844,7 +846,7 @@ onMounted(() => {
               <option value="en">English</option>
               <option value="pt">Português</option>
             </select>
-            <button class="btn btn-sm border-base-content/10 bg-base-content/5 text-base-content/90 hover:bg-base-content/10" @click="navigateSection('releases')">
+            <button class="btn btn-sm border-base-content/10 bg-base-content/5 text-base-content/90 hover:bg-base-content/10" @click="navigateSection('editors')">
               {{ t("common.installEditor") }}
             </button>
             <button class="btn btn-sm btn-primary" :disabled="!activeProject || !!busyAction" @click="launchProject(activeProject!.id)">
@@ -1113,7 +1115,7 @@ onMounted(() => {
             </section>
 
             <section
-              v-if="hasOnboarding"
+              v-if="hasOnboarding && !((activeSection === 'projects' && !state.projects.length) || (activeSection === 'editors' && !state.editors.length))"
               class="overflow-hidden rounded-xl border border-base-content/10 bg-[linear-gradient(135deg,var(--color-base-100)_0%,var(--color-base-200)_55%,var(--color-base-300)_100%)] shadow-2xl"
             >
               <div class="grid gap-8 p-6 lg:grid-cols-[1fr_420px] lg:p-8">
@@ -1128,7 +1130,7 @@ onMounted(() => {
                     {{ t("onboarding.body") }}
                   </p>
                   <div class="mt-6 flex flex-wrap gap-3">
-                    <button class="btn btn-primary" @click="navigateSection('releases')">{{ t("onboarding.download") }}</button>
+                    <button class="btn btn-primary" @click="navigateSection('editors')">{{ t("onboarding.download") }}</button>
                     <button class="btn border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" @click="navigateSection('editors')">
                       {{ t("onboarding.register") }}
                     </button>
@@ -1151,7 +1153,7 @@ onMounted(() => {
               </div>
             </section>
 
-            <section v-if="activeSection === 'projects'" class="grid gap-3 md:grid-cols-3">
+            <section v-if="activeSection === 'projects' && state.projects.length" class="grid gap-3 md:grid-cols-3">
               <div class="rounded-lg border border-base-content/10 bg-base-100 p-4">
                 <p class="text-xs font-bold uppercase text-base-content/50">{{ t("nav.projects") }}</p>
                 <div class="mt-2 flex items-end justify-between">
@@ -1173,9 +1175,13 @@ onMounted(() => {
               </div>
             </section>
 
-            <section v-if="activeSection === 'projects'" class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+            <section
+              v-if="activeSection === 'projects'"
+              class="grid gap-6"
+              :class="{ 'xl:grid-cols-[minmax(0,1fr)_380px]': state.projects.length }"
+            >
               <div class="grid gap-4">
-                <div class="flex flex-col gap-3 rounded-lg border border-base-content/10 bg-base-100 p-4 lg:flex-row lg:items-center">
+                <div v-if="state.projects.length" class="flex flex-col gap-3 rounded-lg border border-base-content/10 bg-base-100 p-4 lg:flex-row lg:items-center">
                   <div class="flex-1">
                     <p class="text-xs font-black uppercase text-primary">{{ t("sections.projectsTitle") }}</p>
                     <h2 class="text-2xl font-black">{{ t("projects.myProjects") }}</h2>
@@ -1187,7 +1193,7 @@ onMounted(() => {
                   />
                 </div>
 
-                <div v-if="sortedProjects.length" class="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+                <div v-if="state.projects.length && sortedProjects.length" class="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
                   <article
                     v-for="project in sortedProjects"
                     :key="project.id"
@@ -1222,7 +1228,7 @@ onMounted(() => {
                   </article>
                 </div>
 
-                <div v-else class="rounded-xl border border-dashed border-base-content/15 bg-base-100 p-10 text-center">
+                <div v-else-if="state.projects.length" class="rounded-xl border border-dashed border-base-content/15 bg-base-100 p-10 text-center">
                   <h3 class="text-2xl font-black">{{ t("common.noProjects") }}</h3>
                   <p class="mt-2 text-base-content/50">{{ t("projects.createNewOrImport") }}</p>
                 </div>
@@ -1276,7 +1282,7 @@ onMounted(() => {
                 </div>
               </div>
 
-              <aside class="h-fit rounded-xl border border-base-content/10 bg-base-100 p-5">
+              <aside v-if="state.projects.length" class="h-fit rounded-xl border border-base-content/10 bg-base-100 p-5">
                 <p class="text-xs font-black uppercase text-primary">Inspector</p>
                 <template v-if="activeProject">
                   <h2 class="mt-2 text-3xl font-black">{{ activeProject.name }}</h2>
@@ -1372,10 +1378,6 @@ onMounted(() => {
                   </div>
                 </article>
 
-                <div v-if="!state.editors.length" class="rounded-xl border border-dashed border-base-content/15 bg-base-100 p-8">
-                  <h3 class="text-2xl font-black">{{ t("common.noEngineInstalled") }}</h3>
-                  <p class="mt-2 text-base-content/50">{{ t("editors.noEngineBody") }}</p>
-                </div>
               </div>
 
               <form class="rounded-xl border border-base-content/10 bg-base-100 p-5" @submit.prevent="addEditor">
@@ -1410,7 +1412,7 @@ onMounted(() => {
               </form>
             </section>
 
-            <section v-if="activeSection === 'releases'" class="grid gap-4">
+            <section v-if="activeSection === 'editors'" class="grid gap-4">
               <div class="rounded-xl border border-base-content/10 bg-base-100 p-5">
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                   <div>
@@ -1439,8 +1441,9 @@ onMounted(() => {
                     </div>
                     <div class="flex flex-col gap-2 sm:flex-row">
                     <input v-model="releaseQuery" class="input input-bordered border-base-content/10 bg-base-200" :placeholder="t('releases.filterPlaceholder')" />
-                    <button class="btn btn-primary" :disabled="!!busyAction" @click="loadReleases">
-                      {{ releasesLoaded ? t("common.refresh") : t("common.fetchReleases") }}
+                    <button class="btn btn-primary" :disabled="busyAction === t('status.fetchingReleases')" @click="loadReleases">
+                      <span v-if="busyAction === t('status.fetchingReleases')" class="loading loading-spinner loading-xs" />
+                      {{ t("common.refresh") }}
                     </button>
                     </div>
                   </div>
@@ -1448,7 +1451,8 @@ onMounted(() => {
               </div>
 
               <div v-if="!releasesLoaded" class="rounded-xl border border-dashed border-base-content/15 bg-base-100 p-10 text-center">
-                <h3 class="text-2xl font-black">{{ t("common.catalogNotLoaded") }}</h3>
+                <span class="loading loading-spinner loading-md text-primary" />
+                <h3 class="mt-4 text-2xl font-black">{{ t("releases.loadingTitle") }}</h3>
                 <p class="mt-2 text-base-content/50">{{ t("releases.fetchOfficial") }}</p>
               </div>
 
@@ -1537,8 +1541,13 @@ onMounted(() => {
                     </div>
                   </label>
                 </div>
-                <div>
-                  <button class="btn btn-primary" :disabled="!!busyAction">{{ t("common.savePaths") }}</button>
+                <div class="mt-5 flex flex-col gap-2 border-t border-base-content/10 pt-5 sm:flex-row sm:justify-end">
+                  <button class="btn border-base-content/10 bg-base-content/5" type="button" :disabled="!!busyAction" @click="restoreDefaultSettings">
+                    {{ t("settings.restoreDefaults") }}
+                  </button>
+                  <button class="btn btn-primary" :disabled="!!busyAction">
+                    {{ t("settings.saveWorkspace") }}
+                  </button>
                 </div>
               </form>
 

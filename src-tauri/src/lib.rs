@@ -1,12 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    env,
-    fs,
-    io,
+    env, fs, io,
     path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
+use tauri::Manager;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -251,7 +250,9 @@ fn http_client() -> Result<reqwest::blocking::Client, String> {
 }
 
 fn version_from_tag(tag: &str) -> String {
-    tag.trim_start_matches("godot-").trim_start_matches('v').to_string()
+    tag.trim_start_matches("godot-")
+        .trim_start_matches('v')
+        .to_string()
 }
 
 fn architecture_from_asset(name: &str) -> String {
@@ -470,7 +471,9 @@ fn get_project_git_status(project_id: String) -> Result<GitStatus, String> {
 
     let porcelain = command_text({
         let mut command = Command::new("git");
-        command.current_dir(&project_path).args(["status", "--porcelain"]);
+        command
+            .current_dir(&project_path)
+            .args(["status", "--porcelain"]);
         command
     })?;
 
@@ -589,7 +592,9 @@ fn list_project_git_branches(project_id: String) -> Result<Vec<GitBranch>, Strin
     let project_path = PathBuf::from(project.path);
     let output = command_text({
         let mut command = Command::new("git");
-        command.current_dir(&project_path).args(["branch", "--format=%(HEAD)%09%(refname:short)"]);
+        command
+            .current_dir(&project_path)
+            .args(["branch", "--format=%(HEAD)%09%(refname:short)"]);
         command
     })?;
 
@@ -621,7 +626,9 @@ fn create_project_git_branch(request: GitBranchRequest) -> Result<GitStatus, Str
 
     command_text({
         let mut command = Command::new("git");
-        command.current_dir(project.path).args(["checkout", "-b", branch_name]);
+        command
+            .current_dir(project.path)
+            .args(["checkout", "-b", branch_name]);
         command
     })?;
 
@@ -639,7 +646,9 @@ fn checkout_project_git_branch(request: GitBranchRequest) -> Result<GitStatus, S
 
     command_text({
         let mut command = Command::new("git");
-        command.current_dir(project.path).args(["checkout", branch_name]);
+        command
+            .current_dir(project.path)
+            .args(["checkout", branch_name]);
         command
     })?;
 
@@ -714,7 +723,8 @@ fn push_project_git_branch(project_id: String) -> Result<GitStatus, String> {
 #[tauri::command]
 fn fetch_godot_releases(limit: Option<usize>) -> Result<Vec<GodotRelease>, String> {
     let max_items = limit.unwrap_or(8).clamp(1, 20);
-    let url = format!("https://api.github.com/repos/godotengine/godot/releases?per_page={max_items}");
+    let url =
+        format!("https://api.github.com/repos/godotengine/godot/releases?per_page={max_items}");
 
     http_client()?
         .get(url)
@@ -754,8 +764,9 @@ fn download_godot_editor(request: DownloadEditorRequest) -> Result<HubState, Str
 
     let executable_path = if request.asset_name.to_lowercase().ends_with(".zip") {
         extract_zip(&archive_path, &release_folder)?;
-        find_godot_executable(&release_folder)
-            .ok_or_else(|| "Download completed, but the Godot executable could not be found.".to_string())?
+        find_godot_executable(&release_folder).ok_or_else(|| {
+            "Download completed, but the Godot executable could not be found.".to_string()
+        })?
     } else {
         archive_path
     };
@@ -788,6 +799,15 @@ fn save_settings(request: UpdateSettingsRequest) -> Result<HubState, String> {
 
     state.settings.default_install_path = request.default_install_path;
     state.settings.default_project_path = request.default_project_path;
+
+    write_state(&state)?;
+    Ok(state)
+}
+
+#[tauri::command]
+fn restore_default_settings() -> Result<HubState, String> {
+    let mut state = read_state()?;
+    state.settings = default_state().settings;
 
     write_state(&state)?;
     Ok(state)
@@ -874,7 +894,11 @@ fn import_project(request: ImportProjectRequest) -> Result<HubState, String> {
     }
 
     let clean_path = path.to_string_lossy().to_string();
-    if state.projects.iter().any(|project| project.path == clean_path) {
+    if state
+        .projects
+        .iter()
+        .any(|project| project.path == clean_path)
+    {
         return Err("This project is already registered.".into());
     }
 
@@ -999,7 +1023,11 @@ fn move_project(request: MoveProjectRequest) -> Result<HubState, String> {
 fn toggle_project_favorite(project_id: String) -> Result<HubState, String> {
     let mut state = read_state()?;
 
-    if let Some(project) = state.projects.iter_mut().find(|project| project.id == project_id) {
+    if let Some(project) = state
+        .projects
+        .iter_mut()
+        .find(|project| project.id == project_id)
+    {
         project.favorite = !project.favorite;
     }
 
@@ -1050,6 +1078,17 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                if let Ok(icon) =
+                    tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))
+                {
+                    let _ = window.set_icon(icon);
+                }
+            }
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             load_hub_state,
             detect_system_profile,
@@ -1064,6 +1103,7 @@ pub fn run() {
             fetch_godot_releases,
             download_godot_editor,
             save_settings,
+            restore_default_settings,
             add_editor,
             remove_editor,
             set_default_editor,

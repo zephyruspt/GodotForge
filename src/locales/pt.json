@@ -157,6 +157,7 @@
     "compatibleWith": "compatível com",
     "fetchOfficial": "Busque releases oficiais e instale a build certa para seu sistema.",
     "filterPlaceholder": "Filtrar versão ou asset",
+    "loadingTitle": "Carregando releases oficiais",
     "noAsset": "Nenhum asset",
     "noAssetSuffix": "nesta release.",
     "officialGithub": "Releases oficiais do GitHub",
@@ -177,7 +178,8 @@
     "projectRemoved": "Projeto removido",
     "projectUpdated": "Projeto atualizado",
     "releasesLoaded": "Releases carregadas",
-    "savingRemote": "Salvando remote"
+    "savingRemote": "Salvando remote",
+    "settingsRestored": "Configurações restauradas"
   },
   "settings": {
     "control": "Controle onde o Forge instala engines e cria projetos.",
@@ -189,6 +191,8 @@
     "language": "Idioma",
     "lightTheme": "Claro",
     "preferences": "Preferências",
+    "restoreDefaults": "Restaurar padrões",
+    "saveWorkspace": "Salvar workspace",
     "theme": "Tema"
   },
   "confirmDelete": {
