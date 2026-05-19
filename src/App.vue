@@ -77,6 +77,12 @@ type GitBranch = {
   current: boolean;
 };
 
+type ThemeName = "godotforge" | "godotforge-light";
+
+const localeStorageKey = "godot-forge-locale";
+const themeStorageKey = "godot-forge-theme";
+const themeNames: ThemeName[] = ["godotforge", "godotforge-light"];
+
 const state = reactive<HubState>({
   editors: [],
   projects: [],
@@ -87,6 +93,13 @@ const state = reactive<HubState>({
 });
 
 const { locale, t } = useI18n();
+const savedLocale = localStorage.getItem(localeStorageKey);
+const savedTheme = localStorage.getItem(themeStorageKey);
+
+if (savedLocale === "en" || savedLocale === "pt") {
+  locale.value = savedLocale;
+}
+
 const sections = ["projects", "editors", "releases", "settings"] as const;
 const activeSection = ref<(typeof sections)[number]>("projects");
 const activeProjectId = ref("");
@@ -104,9 +117,10 @@ const selectedLocale = computed({
   get: () => locale.value,
   set: (value: string) => {
     locale.value = value;
+    localStorage.setItem(localeStorageKey, value);
   },
 });
-const selectedTheme = ref<"godotforge" | "godotforge-light">("godotforge");
+const selectedTheme = ref<ThemeName>(themeNames.includes(savedTheme as ThemeName) ? (savedTheme as ThemeName) : "godotforge");
 const downloadTarget = ref("");
 const installedAssetKeys = ref<string[]>([]);
 const gitStatus = ref<GitStatus | null>(null);
@@ -306,7 +320,7 @@ async function initGit(projectId = activeProjectId.value) {
   if (!projectId) return;
 
   gitLoading.value = true;
-  busyAction.value = "Inicializando Git";
+  busyAction.value = t("git.initializing");
   error.value = "";
   status.value = "";
 
@@ -662,6 +676,7 @@ function gitStatusLabel(status?: GitStatus | null, loading = false) {
 
 watch(selectedTheme, (theme) => {
   document.documentElement.dataset.theme = theme;
+  localStorage.setItem(themeStorageKey, theme);
 });
 
 onMounted(() => {
@@ -672,67 +687,67 @@ onMounted(() => {
 </script>
 
 <template>
-  <main class="min-h-screen bg-[#101216] text-slate-100">
+  <main class="min-h-screen bg-base-200 text-base-content">
     <div class="grid min-h-screen lg:grid-cols-[248px_minmax(0,1fr)]">
-      <aside class="hidden border-r border-white/10 bg-[#15181e] lg:flex lg:flex-col">
-        <div class="border-b border-white/10 p-5">
+      <aside class="hidden border-r border-base-content/10 bg-base-300 lg:flex lg:flex-col">
+        <div class="border-b border-base-content/10 p-5">
           <div class="flex items-center gap-3">
-            <div class="grid h-10 w-10 place-items-center rounded-md bg-[#180f2d] shadow-lg shadow-fuchsia-950/40 ring-1 ring-white/10">
+            <div class="grid h-10 w-10 place-items-center rounded-md bg-primary/10 shadow-lg shadow-primary/20 ring-1 ring-base-content/10">
               <img :src="appLogo" alt="Godot Forge" class="h-8 w-8 object-contain" />
             </div>
             <div>
               <strong class="block text-sm">Godot Forge</strong>
-              <span class="text-xs text-slate-500">Engine & Project Hub</span>
+              <span class="text-xs text-base-content/50">Engine & Project Hub</span>
             </div>
           </div>
         </div>
 
         <nav class="flex-1 p-3">
-          <p class="px-3 pb-2 text-[11px] font-bold uppercase text-slate-500">{{ t("nav.library") }}</p>
+          <p class="px-3 pb-2 text-[11px] font-bold uppercase text-base-content/50">{{ t("nav.library") }}</p>
           <button
             v-for="section in sections"
             :key="section"
-            class="mb-1 flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm font-semibold text-slate-400 transition hover:bg-white/5 hover:text-white"
-            :class="{ 'bg-sky-500/15 text-white ring-1 ring-sky-400/20': activeSection === section }"
+            class="mb-1 flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm font-semibold text-base-content/65 transition hover:bg-base-content/5 hover:text-base-content"
+            :class="{ 'bg-primary/15 text-primary ring-1 ring-primary/20': activeSection === section }"
             @click="navigateSection(section)"
           >
             <span>{{ t(`nav.${section}`) }}</span>
-            <span v-if="section === 'projects'" class="rounded bg-white/10 px-1.5 text-[11px]">{{ state.projects.length }}</span>
-            <span v-if="section === 'editors'" class="rounded bg-white/10 px-1.5 text-[11px]">{{ state.editors.length }}</span>
+            <span v-if="section === 'projects'" class="rounded bg-base-content/10 px-1.5 text-[11px]">{{ state.projects.length }}</span>
+            <span v-if="section === 'editors'" class="rounded bg-base-content/10 px-1.5 text-[11px]">{{ state.editors.length }}</span>
           </button>
         </nav>
 
-        <div class="border-t border-white/10 p-4">
-          <div class="rounded-lg border border-white/10 bg-black/20 p-3">
-            <p class="text-[11px] font-bold uppercase text-slate-500">{{ t("common.defaultEditor") }}</p>
+        <div class="border-t border-base-content/10 p-4">
+          <div class="rounded-lg border border-base-content/10 bg-base-300/60 p-3">
+            <p class="text-[11px] font-bold uppercase text-base-content/50">{{ t("common.defaultEditor") }}</p>
             <strong class="mt-1 block truncate text-sm">
               {{ defaultEditor ? `${defaultEditor.name} ${defaultEditor.version}` : t("common.noEditor") }}
             </strong>
-            <p class="mt-1 truncate text-xs text-slate-500">{{ defaultEditor?.executablePath || t("common.configureInstallation") }}</p>
+            <p class="mt-1 truncate text-xs text-base-content/50">{{ defaultEditor?.executablePath || t("common.configureInstallation") }}</p>
           </div>
         </div>
       </aside>
 
       <section class="min-w-0">
-        <header class="sticky top-0 z-20 border-b border-white/10 bg-[#101216]/95 backdrop-blur">
+        <header class="sticky top-0 z-20 border-b border-base-content/10 bg-base-200/95 backdrop-blur">
           <div class="flex min-h-16 items-center gap-4 px-4 lg:px-8">
-            <div class="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#180f2d] shadow-lg shadow-fuchsia-950/30 ring-1 ring-white/10 lg:hidden">
+            <div class="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-primary/10 shadow-lg shadow-primary/20 ring-1 ring-base-content/10 lg:hidden">
               <img :src="appLogo" alt="Godot Forge" class="h-7 w-7 object-contain" />
             </div>
             <div class="lg:hidden">
-              <select v-model="activeSection" class="select select-bordered select-sm bg-[#191d24]">
+              <select v-model="activeSection" class="select select-bordered select-sm bg-base-100">
                 <option v-for="section in sections" :key="section" :value="section">{{ t(`nav.${section}`) }}</option>
               </select>
             </div>
             <div class="min-w-0 flex-1">
-              <p class="text-[11px] font-black uppercase text-sky-400">Godot Forge / {{ t(`nav.${activeSection}`) }}</p>
+              <p class="text-[11px] font-black uppercase text-primary">Godot Forge / {{ t(`nav.${activeSection}`) }}</p>
               <h1 class="truncate text-lg font-black">{{ sectionTitle(activeSection) }}</h1>
             </div>
-            <select v-model="selectedLocale" class="select select-bordered select-sm border-white/10 bg-[#191d24]">
+            <select v-model="selectedLocale" class="select select-bordered select-sm border-base-content/10 bg-base-100">
               <option value="en">English</option>
               <option value="pt">Português</option>
             </select>
-            <button class="btn btn-sm border-white/10 bg-white/5 text-slate-200 hover:bg-white/10" @click="navigateSection('releases')">
+            <button class="btn btn-sm border-base-content/10 bg-base-content/5 text-base-content/90 hover:bg-base-content/10" @click="navigateSection('releases')">
               {{ t("common.installEditor") }}
             </button>
             <button class="btn btn-sm btn-primary" :disabled="!activeProject || !!busyAction" @click="launchProject(activeProject!.id)">
@@ -743,48 +758,48 @@ onMounted(() => {
 
         <div class="mx-auto grid max-w-[1500px] gap-6 p-4 lg:p-8">
           <div v-if="loading" class="grid gap-4">
-            <div class="h-64 animate-pulse rounded-xl bg-white/5" />
-            <div class="h-40 animate-pulse rounded-xl bg-white/5" />
+            <div class="h-64 animate-pulse rounded-xl bg-base-content/5" />
+            <div class="h-40 animate-pulse rounded-xl bg-base-content/5" />
           </div>
 
           <template v-else>
             <section v-if="projectPageOpen && activeProject" class="grid gap-6">
-              <div class="overflow-hidden rounded-xl border border-white/10 bg-[#171b22]">
-                <div class="relative grid min-h-72 content-end bg-[radial-gradient(circle_at_24%_20%,#2b6f96_0%,#1b3343_34%,#11151b_100%)] p-6 lg:p-8">
-                  <button class="btn btn-sm absolute left-4 top-4 border-white/10 bg-black/30 text-slate-100 hover:bg-black/50" @click="closeProjectPage">
+              <div class="overflow-hidden rounded-xl border border-base-content/10 bg-base-100">
+                <div class="relative grid min-h-72 content-end bg-[radial-gradient(circle_at_24%_20%,var(--color-primary)_0%,var(--color-secondary)_38%,var(--color-base-200)_100%)] p-6 lg:p-8">
+                  <button class="btn btn-sm absolute left-4 top-4 border-base-content/10 bg-base-content/10 text-base-content hover:bg-base-content/20" @click="closeProjectPage">
                     {{ t("common.backToProjects") }}
                   </button>
                   <div class="max-w-4xl">
-                    <p class="text-xs font-black uppercase tracking-wide text-sky-300">{{ t("projectPage.pageLabel") }}</p>
+                    <p class="text-xs font-black uppercase tracking-wide text-primary">{{ t("projectPage.pageLabel") }}</p>
                     <h2 class="mt-2 text-5xl font-black leading-none tracking-tight">{{ activeProject.name }}</h2>
-                    <p class="mt-3 break-all text-sm text-slate-400">{{ activeProject.path }}</p>
+                    <p class="mt-3 break-all text-sm text-base-content/65">{{ activeProject.path }}</p>
                     <div class="mt-5 flex flex-wrap gap-2">
-                      <span class="rounded bg-black/35 px-3 py-1 text-xs font-black text-slate-200">{{ projectEditor?.version ?? t("common.noEditor") }}</span>
-                      <span class="rounded bg-black/35 px-3 py-1 text-xs font-black text-slate-200">Git: {{ gitBadgeText() }}</span>
-                      <span class="rounded bg-black/35 px-3 py-1 text-xs font-black text-slate-200">{{ activeProject.favorite ? t("common.favorite") : t("nav.library") }}</span>
+                      <span class="rounded bg-base-content/10 px-3 py-1 text-xs font-black text-base-content/90">{{ projectEditor?.version ?? t("common.noEditor") }}</span>
+                      <span class="rounded bg-base-content/10 px-3 py-1 text-xs font-black text-base-content/90">Git: {{ gitBadgeText() }}</span>
+                      <span class="rounded bg-base-content/10 px-3 py-1 text-xs font-black text-base-content/90">{{ activeProject.favorite ? t("common.favorite") : t("nav.library") }}</span>
                     </div>
                   </div>
                 </div>
 
-                <div class="flex flex-col gap-4 border-t border-white/10 p-4 lg:flex-row lg:items-center lg:justify-between">
+                <div class="flex flex-col gap-4 border-t border-base-content/10 p-4 lg:flex-row lg:items-center lg:justify-between">
                   <div class="flex flex-wrap gap-2">
                     <button
                       class="rounded-md px-3 py-2 text-xs font-black uppercase transition"
-                      :class="projectDetailTab === 'overview' ? 'bg-sky-500 text-white' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'"
+                      :class="projectDetailTab === 'overview' ? 'bg-primary text-primary-content' : 'bg-base-content/5 text-base-content/65 hover:bg-base-content/10 hover:text-base-content'"
                       @click="projectDetailTab = 'overview'"
                     >
                       {{ t("projectPage.overview") }}
                     </button>
                     <button
                       class="rounded-md px-3 py-2 text-xs font-black uppercase transition"
-                      :class="projectDetailTab === 'git' ? 'bg-sky-500 text-white' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'"
+                      :class="projectDetailTab === 'git' ? 'bg-primary text-primary-content' : 'bg-base-content/5 text-base-content/65 hover:bg-base-content/10 hover:text-base-content'"
                       @click="projectDetailTab = 'git'; remoteUrl = gitStatus?.remote || ''; loadGitStatus(activeProject.id); loadGitLog(activeProject.id); loadGitBranches(activeProject.id)"
                     >
                       Git
                     </button>
                     <button
                       class="rounded-md px-3 py-2 text-xs font-black uppercase transition"
-                      :class="projectDetailTab === 'settings' ? 'bg-sky-500 text-white' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'"
+                      :class="projectDetailTab === 'settings' ? 'bg-primary text-primary-content' : 'bg-base-content/5 text-base-content/65 hover:bg-base-content/10 hover:text-base-content'"
                       @click="projectDetailTab = 'settings'; moveDestinationPath = activeProject.path"
                     >
                       {{ t("common.settings") }}
@@ -792,7 +807,7 @@ onMounted(() => {
                   </div>
                   <div class="flex flex-wrap gap-2">
                     <button class="btn btn-sm btn-primary" :disabled="!!busyAction" @click="launchProject(activeProject.id)">{{ t("common.launchProject") }}</button>
-                    <button class="btn btn-sm border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" :disabled="!!busyAction" @click="toggleFavorite(activeProject.id)">
+                    <button class="btn btn-sm border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :disabled="!!busyAction" @click="toggleFavorite(activeProject.id)">
                       {{ activeProject.favorite ? t("common.removeFavorite") : t("common.favorite") }}
                     </button>
                   </div>
@@ -801,31 +816,31 @@ onMounted(() => {
 
               <section v-if="projectDetailTab === 'overview'" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
                 <div class="grid gap-4 md:grid-cols-3">
-                  <div class="rounded-xl border border-white/10 bg-[#171b22] p-5">
-                    <p class="text-xs font-black uppercase text-slate-500">{{ t("common.engine") }}</p>
+                  <div class="rounded-xl border border-base-content/10 bg-base-100 p-5">
+                    <p class="text-xs font-black uppercase text-base-content/50">{{ t("common.engine") }}</p>
                     <strong class="mt-2 block text-2xl">{{ projectEditor?.version ?? t("common.noEditor") }}</strong>
-                    <p class="mt-1 truncate text-xs text-slate-500">{{ projectEditor?.executablePath || t("common.configureInstallation") }}</p>
+                    <p class="mt-1 truncate text-xs text-base-content/50">{{ projectEditor?.executablePath || t("common.configureInstallation") }}</p>
                   </div>
-                  <div class="rounded-xl border border-white/10 bg-[#171b22] p-5">
-                    <p class="text-xs font-black uppercase text-slate-500">{{ t("common.lastOpened") }}</p>
+                  <div class="rounded-xl border border-base-content/10 bg-base-100 p-5">
+                    <p class="text-xs font-black uppercase text-base-content/50">{{ t("common.lastOpened") }}</p>
                     <strong class="mt-2 block text-xl">{{ lastOpenedLabel(activeProject.lastOpened) }}</strong>
-                    <p class="mt-1 text-xs text-slate-500">{{ t("projectPage.lastOpenedHint") }}</p>
+                    <p class="mt-1 text-xs text-base-content/50">{{ t("projectPage.lastOpenedHint") }}</p>
                   </div>
-                  <div class="rounded-xl border border-white/10 bg-[#171b22] p-5">
-                    <p class="text-xs font-black uppercase text-slate-500">{{ t("common.sourceControl") }}</p>
+                  <div class="rounded-xl border border-base-content/10 bg-base-100 p-5">
+                    <p class="text-xs font-black uppercase text-base-content/50">{{ t("common.sourceControl") }}</p>
                     <strong class="mt-2 block text-xl">{{ gitBadgeText() }}</strong>
-                    <p class="mt-1 text-xs text-slate-500">{{ gitStatus?.summary || t("projectPage.statusNotLoaded") }}</p>
+                    <p class="mt-1 text-xs text-base-content/50">{{ gitStatus?.summary || t("projectPage.statusNotLoaded") }}</p>
                   </div>
                 </div>
 
-                <aside class="rounded-xl border border-white/10 bg-[#171b22] p-5">
-                  <p class="text-xs font-black uppercase text-sky-400">{{ t("projectPage.quickActions") }}</p>
+                <aside class="rounded-xl border border-base-content/10 bg-base-100 p-5">
+                  <p class="text-xs font-black uppercase text-primary">{{ t("projectPage.quickActions") }}</p>
                   <div class="mt-4 grid gap-2">
                     <button class="btn btn-primary" :disabled="!!busyAction" @click="launchProject(activeProject.id)">{{ t("common.openInEditor") }}</button>
-                    <button class="btn border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" @click="projectDetailTab = 'git'; remoteUrl = gitStatus?.remote || ''; loadGitStatus(activeProject.id); loadGitLog(activeProject.id); loadGitBranches(activeProject.id)">
+                    <button class="btn border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" @click="projectDetailTab = 'git'; remoteUrl = gitStatus?.remote || ''; loadGitStatus(activeProject.id); loadGitLog(activeProject.id); loadGitBranches(activeProject.id)">
                       {{ t("projectPage.gitManage") }}
                     </button>
-                    <button class="btn border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" @click="projectDetailTab = 'settings'; moveDestinationPath = activeProject.path">
+                    <button class="btn border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" @click="projectDetailTab = 'settings'; moveDestinationPath = activeProject.path">
                       {{ t("common.configureProject") }}
                     </button>
                   </div>
@@ -833,19 +848,19 @@ onMounted(() => {
               </section>
 
               <section v-if="projectDetailTab === 'git'" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-                <div class="rounded-xl border border-white/10 bg-[#171b22] p-5">
+                <div class="rounded-xl border border-base-content/10 bg-base-100 p-5">
                   <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
-                      <p class="text-xs font-black uppercase text-sky-400">{{ t("git.projectGit") }}</p>
+                      <p class="text-xs font-black uppercase text-primary">{{ t("git.projectGit") }}</p>
                       <h3 class="mt-1 text-2xl font-black">{{ gitBadgeText() }}</h3>
-                      <p class="mt-1 text-sm text-slate-500">{{ gitStatus?.summary || t("projectPage.statusNotLoadedYet") }}</p>
+                      <p class="mt-1 text-sm text-base-content/50">{{ gitStatus?.summary || t("projectPage.statusNotLoadedYet") }}</p>
                     </div>
                     <div class="flex flex-wrap gap-2">
-                      <button class="btn btn-sm border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" :disabled="gitLoading" @click="loadGitStatus(activeProject.id); loadGitLog(activeProject.id); loadGitBranches(activeProject.id)">
+                      <button class="btn btn-sm border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :disabled="gitLoading" @click="loadGitStatus(activeProject.id); loadGitLog(activeProject.id); loadGitBranches(activeProject.id)">
                         {{ t("common.refresh") }}
                       </button>
                       <button
-                        class="btn btn-sm border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
+                        class="btn btn-sm border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10"
                         :disabled="!gitStatus?.isRepo || !!busyAction"
                         @click="pushGitBranch(activeProject.id)"
                       >
@@ -863,41 +878,41 @@ onMounted(() => {
                   </div>
 
                   <div class="mt-5 grid gap-3 md:grid-cols-4">
-                    <div class="rounded-lg bg-black/20 p-4">
-                      <p class="text-xs font-black uppercase text-slate-500">{{ t("common.branch") }}</p>
+                    <div class="rounded-lg bg-base-300/60 p-4">
+                      <p class="text-xs font-black uppercase text-base-content/50">{{ t("common.branch") }}</p>
                       <strong class="mt-2 block truncate">{{ gitStatus?.branch || "n/a" }}</strong>
                     </div>
-                    <div class="rounded-lg bg-black/20 p-4">
-                      <p class="text-xs font-black uppercase text-slate-500">{{ t("common.changes") }}</p>
+                    <div class="rounded-lg bg-base-300/60 p-4">
+                      <p class="text-xs font-black uppercase text-base-content/50">{{ t("common.changes") }}</p>
                       <strong class="mt-2 block text-2xl">{{ gitStatus?.changedFiles ?? 0 }}</strong>
                     </div>
-                    <div class="rounded-lg bg-black/20 p-4">
-                      <p class="text-xs font-black uppercase text-slate-500">{{ t("common.untracked") }}</p>
+                    <div class="rounded-lg bg-base-300/60 p-4">
+                      <p class="text-xs font-black uppercase text-base-content/50">{{ t("common.untracked") }}</p>
                       <strong class="mt-2 block text-2xl">{{ gitStatus?.untrackedFiles ?? 0 }}</strong>
                     </div>
-                    <div class="rounded-lg bg-black/20 p-4">
-                      <p class="text-xs font-black uppercase text-slate-500">Remote</p>
+                    <div class="rounded-lg bg-base-300/60 p-4">
+                      <p class="text-xs font-black uppercase text-base-content/50">Remote</p>
                       <strong class="mt-2 block truncate">{{ gitStatus?.remote ? "origin" : "n/a" }}</strong>
                     </div>
                   </div>
 
-                  <div class="mt-5 rounded-lg bg-black/20 p-4">
-                    <p class="text-xs font-black uppercase text-slate-500">Origin URL</p>
-                    <p class="mt-2 break-all text-sm text-slate-300">{{ gitStatus?.remote || t("git.noOrigin") }}</p>
+                  <div class="mt-5 rounded-lg bg-base-300/60 p-4">
+                    <p class="text-xs font-black uppercase text-base-content/50">Origin URL</p>
+                    <p class="mt-2 break-all text-sm text-base-content/80">{{ gitStatus?.remote || t("git.noOrigin") }}</p>
                   </div>
 
                   <div class="mt-5 grid gap-4 lg:grid-cols-2">
-                    <div class="rounded-lg border border-white/10 bg-black/20 p-4">
+                    <div class="rounded-lg border border-base-content/10 bg-base-300/60 p-4">
                       <div class="flex items-center justify-between gap-3">
-                        <p class="text-xs font-black uppercase text-slate-500">{{ t("git.branches") }}</p>
-                        <span class="text-xs text-slate-500">{{ t("git.localBranches", { count: gitBranches.length }) }}</span>
+                        <p class="text-xs font-black uppercase text-base-content/50">{{ t("git.branches") }}</p>
+                        <span class="text-xs text-base-content/50">{{ t("git.localBranches", { count: gitBranches.length }) }}</span>
                       </div>
                       <div v-if="gitBranches.length" class="mt-3 grid gap-2">
                         <button
                           v-for="branch in gitBranches"
                           :key="branch.name"
                           class="flex items-center justify-between rounded-md px-3 py-2 text-left text-sm transition"
-                          :class="branch.current ? 'bg-sky-500/15 text-sky-200 ring-1 ring-sky-400/20' : 'bg-white/5 text-slate-300 hover:bg-white/10'"
+                          :class="branch.current ? 'bg-primary/15 text-primary ring-1 ring-primary/20' : 'bg-base-content/5 text-base-content/80 hover:bg-base-content/10'"
                           :disabled="branch.current || !!busyAction"
                           @click="checkoutGitBranch(branch.name, activeProject.id)"
                         >
@@ -905,22 +920,22 @@ onMounted(() => {
                           <span class="text-xs">{{ branch.current ? t("common.current") : t("common.checkout") }}</span>
                         </button>
                       </div>
-                      <p v-else class="mt-3 text-sm text-slate-500">{{ t("git.noLocalBranches") }}</p>
+                      <p v-else class="mt-3 text-sm text-base-content/50">{{ t("git.noLocalBranches") }}</p>
                     </div>
 
                     <div class="grid gap-4">
-                      <form class="rounded-lg border border-white/10 bg-black/20 p-4" @submit.prevent="createGitBranch(activeProject.id)">
-                        <p class="text-xs font-black uppercase text-slate-500">{{ t("git.createBranch") }}</p>
+                      <form class="rounded-lg border border-base-content/10 bg-base-300/60 p-4" @submit.prevent="createGitBranch(activeProject.id)">
+                        <p class="text-xs font-black uppercase text-base-content/50">{{ t("git.createBranch") }}</p>
                         <div class="mt-3 flex flex-col gap-2 sm:flex-row">
-                          <input v-model="branchName" class="input input-bordered input-sm border-white/10 bg-[#101216]" :placeholder="t('git.branchNamePlaceholder')" />
+                          <input v-model="branchName" class="input input-bordered input-sm border-base-content/10 bg-base-200" :placeholder="t('git.branchNamePlaceholder')" />
                           <button class="btn btn-primary btn-sm" :disabled="!!busyAction || !branchName.trim()">{{ t("common.create") }}</button>
                         </div>
                       </form>
 
-                      <form class="rounded-lg border border-white/10 bg-black/20 p-4" @submit.prevent="saveGitRemote(activeProject.id)">
-                        <p class="text-xs font-black uppercase text-slate-500">Remote origin</p>
+                      <form class="rounded-lg border border-base-content/10 bg-base-300/60 p-4" @submit.prevent="saveGitRemote(activeProject.id)">
+                        <p class="text-xs font-black uppercase text-base-content/50">Remote origin</p>
                         <div class="mt-3 grid gap-2">
-                          <input v-model="remoteUrl" class="input input-bordered input-sm border-white/10 bg-[#101216]" placeholder="git@github.com:user/repo.git" />
+                          <input v-model="remoteUrl" class="input input-bordered input-sm border-base-content/10 bg-base-200" placeholder="git@github.com:user/repo.git" />
                           <button class="btn btn-primary btn-sm w-fit" :disabled="!!busyAction || !remoteUrl.trim()">{{ t("common.saveRemote") }}</button>
                         </div>
                       </form>
@@ -928,34 +943,34 @@ onMounted(() => {
                   </div>
                 </div>
 
-                <aside class="rounded-xl border border-white/10 bg-[#171b22] p-5">
-                  <p class="text-xs font-black uppercase text-sky-400">{{ t("projectPage.recentLog") }}</p>
-                  <div v-if="gitLogLoading" class="mt-4 text-sm text-slate-500">{{ t("common.loadingLog") }}</div>
+                <aside class="rounded-xl border border-base-content/10 bg-base-100 p-5">
+                  <p class="text-xs font-black uppercase text-primary">{{ t("projectPage.recentLog") }}</p>
+                  <div v-if="gitLogLoading" class="mt-4 text-sm text-base-content/50">{{ t("common.loadingLog") }}</div>
                   <div v-else-if="gitLog.length" class="mt-4 grid gap-3">
-                    <div v-for="entry in gitLog" :key="entry.hash" class="rounded-lg bg-black/20 p-3">
+                    <div v-for="entry in gitLog" :key="entry.hash" class="rounded-lg bg-base-300/60 p-3">
                       <div class="flex items-center justify-between gap-3">
                         <strong class="truncate text-sm">{{ entry.subject }}</strong>
-                        <span class="text-xs text-sky-300">{{ entry.hash }}</span>
+                        <span class="text-xs text-primary">{{ entry.hash }}</span>
                       </div>
-                      <p class="mt-1 text-xs text-slate-500">{{ entry.author }} - {{ entry.relativeDate }}</p>
+                      <p class="mt-1 text-xs text-base-content/50">{{ entry.author }} - {{ entry.relativeDate }}</p>
                     </div>
                   </div>
-                  <p v-else class="mt-4 text-sm text-slate-500">{{ t("projectPage.noCommits") }}</p>
+                  <p v-else class="mt-4 text-sm text-base-content/50">{{ t("projectPage.noCommits") }}</p>
                 </aside>
               </section>
 
               <section v-if="projectDetailTab === 'settings'" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-                <form class="rounded-xl border border-white/10 bg-[#171b22] p-5" @submit.prevent="moveProject">
-                  <p class="text-xs font-black uppercase text-sky-400">Project</p>
+                <form class="rounded-xl border border-base-content/10 bg-base-100 p-5" @submit.prevent="moveProject">
+                  <p class="text-xs font-black uppercase text-primary">Project</p>
                   <h3 class="mt-1 text-2xl font-black">{{ t("projectPage.projectSettings") }}</h3>
                   <div class="mt-5 grid gap-4">
                     <label class="grid gap-2">
-                      <span class="text-sm font-bold text-slate-300">{{ t("projectPage.pathCurrent") }}</span>
-                      <input class="input input-bordered border-white/10 bg-[#101216]" :value="activeProject.path" disabled />
+                      <span class="text-sm font-bold text-base-content/80">{{ t("projectPage.pathCurrent") }}</span>
+                      <input class="input input-bordered border-base-content/10 bg-base-200" :value="activeProject.path" disabled />
                     </label>
                     <label class="grid gap-2">
-                      <span class="text-sm font-bold text-slate-300">{{ t("projectPage.newDestinationPath") }}</span>
-                      <input v-model="moveDestinationPath" class="input input-bordered border-white/10 bg-[#101216]" required />
+                      <span class="text-sm font-bold text-base-content/80">{{ t("projectPage.newDestinationPath") }}</span>
+                      <input v-model="moveDestinationPath" class="input input-bordered border-base-content/10 bg-base-200" required />
                     </label>
                     <button class="btn btn-primary w-fit" :disabled="!!busyAction || moveDestinationPath === activeProject.path">
                       {{ t("projectPage.moveProject") }}
@@ -963,9 +978,9 @@ onMounted(() => {
                   </div>
                 </form>
 
-                <aside class="rounded-xl border border-white/10 bg-[#171b22] p-5">
-                  <p class="text-xs font-black uppercase text-sky-400">{{ t("projectPage.dangerZone") }}</p>
-                  <p class="mt-2 text-sm text-slate-500">{{ t("projectPage.dangerBody") }}</p>
+                <aside class="rounded-xl border border-base-content/10 bg-base-100 p-5">
+                  <p class="text-xs font-black uppercase text-primary">{{ t("projectPage.dangerZone") }}</p>
+                  <p class="mt-2 text-sm text-base-content/50">{{ t("projectPage.dangerBody") }}</p>
                   <button class="btn btn-error btn-outline mt-4" :disabled="!!busyAction" @click="removeProject(activeProject.id); closeProjectPage()">
                     {{ t("common.removeFromLibrary") }}
                   </button>
@@ -974,19 +989,19 @@ onMounted(() => {
             </section>
 
             <template v-else>
-            <section class="overflow-hidden rounded-xl border border-white/10 bg-[#171b22]">
-              <div class="flex flex-col gap-5 border-l-4 border-sky-400 p-5 lg:flex-row lg:items-center lg:justify-between">
+            <section class="overflow-hidden rounded-xl border border-base-content/10 bg-base-100">
+              <div class="flex flex-col gap-5 border-l-4 border-primary p-5 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <p class="text-[11px] font-black uppercase tracking-wide text-sky-400">{{ t("nav.currentScreen") }}</p>
+                  <p class="text-[11px] font-black uppercase tracking-wide text-primary">{{ t("nav.currentScreen") }}</p>
                   <h2 class="mt-1 text-3xl font-black tracking-tight lg:text-4xl">{{ sectionTitle(activeSection) }}</h2>
-                  <p class="mt-2 max-w-2xl text-sm text-slate-400">{{ sectionDescription(activeSection) }}</p>
+                  <p class="mt-2 max-w-2xl text-sm text-base-content/65">{{ sectionDescription(activeSection) }}</p>
                 </div>
                 <div class="flex flex-wrap gap-2">
                   <button
                     v-for="section in sections"
                     :key="section"
                     class="rounded-md px-3 py-2 text-xs font-black uppercase transition"
-                    :class="activeSection === section ? 'bg-sky-500 text-white shadow-lg shadow-sky-950/40' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'"
+                    :class="activeSection === section ? 'bg-primary text-primary-content shadow-lg shadow-primary/20' : 'bg-base-content/5 text-base-content/65 hover:bg-base-content/10 hover:text-base-content'"
                     @click="navigateSection(section)"
                   >
                     {{ t(`nav.${section}`) }}
@@ -997,75 +1012,75 @@ onMounted(() => {
 
             <section
               v-if="hasOnboarding"
-              class="overflow-hidden rounded-xl border border-white/10 bg-[linear-gradient(135deg,#1d2733_0%,#11141a_55%,#0e1117_100%)] shadow-2xl"
+              class="overflow-hidden rounded-xl border border-base-content/10 bg-[linear-gradient(135deg,var(--color-base-100)_0%,var(--color-base-200)_55%,var(--color-base-300)_100%)] shadow-2xl"
             >
               <div class="grid gap-8 p-6 lg:grid-cols-[1fr_420px] lg:p-8">
                 <div class="flex min-h-72 flex-col justify-end">
-                  <span class="mb-4 w-fit rounded bg-sky-400/15 px-3 py-1 text-xs font-black uppercase text-sky-300 ring-1 ring-sky-400/20">
+                  <span class="mb-4 w-fit rounded bg-primary/15 px-3 py-1 text-xs font-black uppercase text-primary ring-1 ring-primary/20">
                     {{ t("onboarding.setupRequired") }}
                   </span>
                   <h2 class="max-w-4xl text-4xl font-black leading-none tracking-tight lg:text-6xl">
                     {{ t("onboarding.title") }}
                   </h2>
-                  <p class="mt-4 max-w-2xl text-sm leading-6 text-slate-400 lg:text-base">
+                  <p class="mt-4 max-w-2xl text-sm leading-6 text-base-content/65 lg:text-base">
                     {{ t("onboarding.body") }}
                   </p>
                   <div class="mt-6 flex flex-wrap gap-3">
                     <button class="btn btn-primary" @click="navigateSection('releases')">{{ t("onboarding.download") }}</button>
-                    <button class="btn border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" @click="navigateSection('editors')">
+                    <button class="btn border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" @click="navigateSection('editors')">
                       {{ t("onboarding.register") }}
                     </button>
-                    <button class="btn btn-ghost text-slate-400" @click="dismissWelcome = true">Skip</button>
+                    <button class="btn btn-ghost text-base-content/65" @click="dismissWelcome = true">Skip</button>
                   </div>
                 </div>
 
                 <div class="grid content-end gap-3">
-                  <div class="rounded-lg border border-white/10 bg-black/25 p-4">
-                    <p class="text-xs font-black uppercase text-sky-300">01 Engine install</p>
+                  <div class="rounded-lg border border-base-content/10 bg-base-300/70 p-4">
+                    <p class="text-xs font-black uppercase text-primary">01 Engine install</p>
                     <h3 class="mt-2 font-bold">{{ t("onboarding.engineInstallTitle") }}</h3>
-                    <p class="mt-1 text-sm text-slate-500">{{ t("onboarding.engineInstallBody") }}</p>
+                    <p class="mt-1 text-sm text-base-content/50">{{ t("onboarding.engineInstallBody") }}</p>
                   </div>
-                  <div class="rounded-lg border border-white/10 bg-black/25 p-4">
-                    <p class="text-xs font-black uppercase text-amber-300">02 Project library</p>
+                  <div class="rounded-lg border border-base-content/10 bg-base-300/70 p-4">
+                    <p class="text-xs font-black uppercase text-warning">02 Project library</p>
                     <h3 class="mt-2 font-bold">{{ t("onboarding.projectLibraryTitle") }}</h3>
-                    <p class="mt-1 text-sm text-slate-500">{{ t("onboarding.projectLibraryBody") }}</p>
+                    <p class="mt-1 text-sm text-base-content/50">{{ t("onboarding.projectLibraryBody") }}</p>
                   </div>
                 </div>
               </div>
             </section>
 
             <section v-if="activeSection === 'projects'" class="grid gap-3 md:grid-cols-3">
-              <div class="rounded-lg border border-white/10 bg-[#171b22] p-4">
-                <p class="text-xs font-bold uppercase text-slate-500">{{ t("nav.projects") }}</p>
+              <div class="rounded-lg border border-base-content/10 bg-base-100 p-4">
+                <p class="text-xs font-bold uppercase text-base-content/50">{{ t("nav.projects") }}</p>
                 <div class="mt-2 flex items-end justify-between">
                   <strong class="text-4xl font-black">{{ state.projects.length }}</strong>
-                  <span class="text-xs text-slate-500">{{ sortedProjects.length }} {{ t("projects.filtered") }}</span>
+                  <span class="text-xs text-base-content/50">{{ sortedProjects.length }} {{ t("projects.filtered") }}</span>
                 </div>
               </div>
-              <div class="rounded-lg border border-white/10 bg-[#171b22] p-4">
-                <p class="text-xs font-bold uppercase text-slate-500">Engine versions</p>
+              <div class="rounded-lg border border-base-content/10 bg-base-100 p-4">
+                <p class="text-xs font-bold uppercase text-base-content/50">Engine versions</p>
                 <div class="mt-2 flex items-end justify-between">
                   <strong class="text-4xl font-black">{{ state.editors.length }}</strong>
-                  <span class="max-w-40 truncate text-xs text-slate-500">{{ defaultEditor?.version || "No default" }}</span>
+                  <span class="max-w-40 truncate text-xs text-base-content/50">{{ defaultEditor?.version || "No default" }}</span>
                 </div>
               </div>
-              <div class="rounded-lg border border-white/10 bg-[#171b22] p-4">
-                <p class="text-xs font-bold uppercase text-slate-500">Project path</p>
+              <div class="rounded-lg border border-base-content/10 bg-base-100 p-4">
+                <p class="text-xs font-bold uppercase text-base-content/50">Project path</p>
                 <strong class="mt-2 block truncate text-lg">{{ state.settings.defaultProjectPath || "Not configured" }}</strong>
-                <p class="mt-1 text-xs text-slate-500">Default workspace</p>
+                <p class="mt-1 text-xs text-base-content/50">Default workspace</p>
               </div>
             </section>
 
             <section v-if="activeSection === 'projects'" class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
               <div class="grid gap-4">
-                <div class="flex flex-col gap-3 rounded-lg border border-white/10 bg-[#171b22] p-4 lg:flex-row lg:items-center">
+                <div class="flex flex-col gap-3 rounded-lg border border-base-content/10 bg-base-100 p-4 lg:flex-row lg:items-center">
                   <div class="flex-1">
-                    <p class="text-xs font-black uppercase text-sky-400">{{ t("sections.projectsTitle") }}</p>
+                    <p class="text-xs font-black uppercase text-primary">{{ t("sections.projectsTitle") }}</p>
                     <h2 class="text-2xl font-black">{{ t("projects.myProjects") }}</h2>
                   </div>
                   <input
                     v-model="projectSearch"
-                    class="input input-bordered h-10 border-white/10 bg-[#101216] text-sm lg:w-80"
+                    class="input input-bordered h-10 border-base-content/10 bg-base-200 text-sm lg:w-80"
                     :placeholder="t('projects.searchPlaceholder')"
                   />
                 </div>
@@ -1074,14 +1089,14 @@ onMounted(() => {
                   <article
                     v-for="project in sortedProjects"
                     :key="project.id"
-                    class="group cursor-pointer overflow-hidden rounded-xl border border-white/10 bg-[#171b22] transition hover:-translate-y-0.5 hover:border-sky-400/50 hover:bg-[#1b2028]"
-                    :class="{ 'border-sky-400/70 ring-1 ring-sky-400/30': activeProject?.id === project.id }"
+                    class="group cursor-pointer overflow-hidden rounded-xl border border-base-content/10 bg-base-100 transition hover:-translate-y-0.5 hover:border-primary/50 hover:bg-base-200"
+                    :class="{ 'border-primary/70 ring-1 ring-primary/30': activeProject?.id === project.id }"
                     @click="openProjectPage(project.id)"
                   >
-                    <div class="relative grid aspect-[16/9] place-items-center bg-[radial-gradient(circle_at_30%_20%,#2b6f96_0%,#1b3343_34%,#11151b_100%)]">
-                      <span class="text-5xl font-black text-white/85">{{ projectInitials(project.name) || "GD" }}</span>
+                    <div class="relative grid aspect-[16/9] place-items-center bg-[radial-gradient(circle_at_30%_20%,var(--color-primary)_0%,var(--color-secondary)_38%,var(--color-base-200)_100%)]">
+                      <span class="text-5xl font-black text-primary-content/90">{{ projectInitials(project.name) || "GD" }}</span>
                       <button
-                        class="absolute right-3 top-3 rounded bg-black/40 px-2 py-1 text-lg text-amber-300 backdrop-blur"
+                        class="absolute right-3 top-3 rounded bg-base-300/70 px-2 py-1 text-lg text-warning backdrop-blur"
                         @click.stop="toggleFavorite(project.id)"
                       >
                         {{ project.favorite ? "★" : "☆" }}
@@ -1090,11 +1105,11 @@ onMounted(() => {
                     <div class="grid gap-3 p-4">
                       <div>
                         <h3 class="truncate text-lg font-black">{{ project.name }}</h3>
-                        <p class="mt-1 truncate text-xs text-slate-500">{{ project.path }}</p>
+                        <p class="mt-1 truncate text-xs text-base-content/50">{{ project.path }}</p>
                       </div>
                       <div class="flex items-center justify-between gap-3">
-                        <span class="rounded bg-white/5 px-2 py-1 text-xs font-bold text-slate-300">{{ editorLabel(project.editorId) }}</span>
-                        <span class="rounded px-2 py-1 text-[11px] font-black uppercase" :class="projectGitStatuses[project.id]?.isRepo ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/5 text-slate-500'">
+                        <span class="rounded bg-base-content/5 px-2 py-1 text-xs font-bold text-base-content/80">{{ editorLabel(project.editorId) }}</span>
+                        <span class="rounded px-2 py-1 text-[11px] font-black uppercase" :class="projectGitStatuses[project.id]?.isRepo ? 'bg-success/15 text-success' : 'bg-base-content/5 text-base-content/50'">
                           Git: {{ gitStatusLabel(projectGitStatuses[project.id]) }}
                         </span>
                         <button class="btn btn-primary btn-xs" :disabled="!!busyAction" @click.stop="launchProject(project.id)">
@@ -1105,21 +1120,21 @@ onMounted(() => {
                   </article>
                 </div>
 
-                <div v-else class="rounded-xl border border-dashed border-white/15 bg-[#171b22] p-10 text-center">
+                <div v-else class="rounded-xl border border-dashed border-base-content/15 bg-base-100 p-10 text-center">
                   <h3 class="text-2xl font-black">{{ t("common.noProjects") }}</h3>
-                  <p class="mt-2 text-slate-500">{{ t("projects.createNewOrImport") }}</p>
+                  <p class="mt-2 text-base-content/50">{{ t("projects.createNewOrImport") }}</p>
                 </div>
 
                 <div class="grid gap-4 lg:grid-cols-2">
-                  <form class="rounded-lg border border-white/10 bg-[#171b22] p-4" @submit.prevent="createProject">
+                  <form class="rounded-lg border border-base-content/10 bg-base-100 p-4" @submit.prevent="createProject">
                     <div class="mb-4 flex items-center justify-between">
                       <h3 class="font-black">{{ t("projects.newProject") }}</h3>
-                      <span class="text-xs text-slate-500">{{ t("common.create") }}</span>
+                      <span class="text-xs text-base-content/50">{{ t("common.create") }}</span>
                     </div>
                     <div class="grid gap-3">
-                      <input v-model="newProject.name" class="input input-bordered border-white/10 bg-[#101216]" required :placeholder="t('projects.projectName')" />
-                      <input v-model="newProject.rootPath" class="input input-bordered border-white/10 bg-[#101216]" required :placeholder="t('projects.baseFolder')" />
-                      <select v-model="newProject.editorId" class="select select-bordered border-white/10 bg-[#101216]">
+                      <input v-model="newProject.name" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('projects.projectName')" />
+                      <input v-model="newProject.rootPath" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('projects.baseFolder')" />
+                      <select v-model="newProject.editorId" class="select select-bordered border-base-content/10 bg-base-200">
                         <option value="">{{ t("projects.useDefaultEditor") }}</option>
                         <option v-for="editor in state.editors" :key="editor.id" :value="editor.id">
                           {{ editor.name }} {{ editor.version }}
@@ -1129,66 +1144,66 @@ onMounted(() => {
                     </div>
                   </form>
 
-                  <form class="rounded-lg border border-white/10 bg-[#171b22] p-4" @submit.prevent="importProject">
+                  <form class="rounded-lg border border-base-content/10 bg-base-100 p-4" @submit.prevent="importProject">
                     <div class="mb-4 flex items-center justify-between">
                       <h3 class="font-black">{{ t("projects.importProject") }}</h3>
-                      <span class="text-xs text-slate-500">{{ t("common.import") }}</span>
+                      <span class="text-xs text-base-content/50">{{ t("common.import") }}</span>
                     </div>
                     <div class="grid gap-3">
-                      <input v-model="importProjectForm.name" class="input input-bordered border-white/10 bg-[#101216]" :placeholder="t('projects.optionalName')" />
-                      <input v-model="importProjectForm.path" class="input input-bordered border-white/10 bg-[#101216]" required :placeholder="t('projects.projectPathPlaceholder')" />
-                      <select v-model="importProjectForm.editorId" class="select select-bordered border-white/10 bg-[#101216]">
+                      <input v-model="importProjectForm.name" class="input input-bordered border-base-content/10 bg-base-200" :placeholder="t('projects.optionalName')" />
+                      <input v-model="importProjectForm.path" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('projects.projectPathPlaceholder')" />
+                      <select v-model="importProjectForm.editorId" class="select select-bordered border-base-content/10 bg-base-200">
                         <option value="">{{ t("projects.useDefaultEditor") }}</option>
                         <option v-for="editor in state.editors" :key="editor.id" :value="editor.id">
                           {{ editor.name }} {{ editor.version }}
                         </option>
                       </select>
-                      <button class="btn border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" :disabled="!!busyAction">{{ t("common.import") }}</button>
+                      <button class="btn border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :disabled="!!busyAction">{{ t("common.import") }}</button>
                     </div>
                   </form>
                 </div>
               </div>
 
-              <aside class="h-fit rounded-xl border border-white/10 bg-[#171b22] p-5">
-                <p class="text-xs font-black uppercase text-sky-400">Inspector</p>
+              <aside class="h-fit rounded-xl border border-base-content/10 bg-base-100 p-5">
+                <p class="text-xs font-black uppercase text-primary">Inspector</p>
                 <template v-if="activeProject">
                   <h2 class="mt-2 text-3xl font-black">{{ activeProject.name }}</h2>
-                  <p class="mt-2 break-all text-sm text-slate-500">{{ activeProject.path }}</p>
-                  <div class="my-5 h-px bg-white/10" />
+                  <p class="mt-2 break-all text-sm text-base-content/50">{{ activeProject.path }}</p>
+                  <div class="my-5 h-px bg-base-content/10" />
                   <div class="grid gap-3 text-sm">
                     <div class="flex justify-between gap-3">
-                      <span class="text-slate-500">{{ t("common.engine") }}</span>
+                      <span class="text-base-content/50">{{ t("common.engine") }}</span>
                       <strong>{{ projectEditor?.version ?? t("common.noEditor") }}</strong>
                     </div>
                     <div class="flex justify-between gap-3">
-                      <span class="text-slate-500">{{ t("common.lastOpened") }}</span>
+                      <span class="text-base-content/50">{{ t("common.lastOpened") }}</span>
                       <strong class="text-right">{{ lastOpenedLabel(activeProject.lastOpened) }}</strong>
                     </div>
                     <div class="flex justify-between gap-3">
-                      <span class="text-slate-500">{{ t("common.favorite") }}</span>
+                      <span class="text-base-content/50">{{ t("common.favorite") }}</span>
                       <strong>{{ activeProject.favorite ? t("common.yes") : t("common.no") }}</strong>
                     </div>
                   </div>
-                  <div class="mt-5 rounded-lg border border-white/10 bg-black/20 p-3">
+                  <div class="mt-5 rounded-lg border border-base-content/10 bg-base-300/60 p-3">
                     <div class="flex items-center justify-between gap-3">
-                      <span class="text-xs font-black uppercase text-slate-500">Git</span>
-                      <span class="rounded bg-white/10 px-2 py-1 text-[11px] font-black text-slate-300">{{ gitBadgeText() }}</span>
+                      <span class="text-xs font-black uppercase text-base-content/50">Git</span>
+                      <span class="rounded bg-base-content/10 px-2 py-1 text-[11px] font-black text-base-content/80">{{ gitBadgeText() }}</span>
                     </div>
-                    <p class="mt-2 text-sm text-slate-400">{{ gitStatus?.summary || t("projectPage.selectProjectGit") }}</p>
+                    <p class="mt-2 text-sm text-base-content/65">{{ gitStatus?.summary || t("projectPage.selectProjectGit") }}</p>
                     <div v-if="gitStatus?.isRepo" class="mt-3 grid grid-cols-2 gap-2 text-xs">
-                      <div class="rounded bg-white/5 p-2">
-                        <span class="block text-slate-500">Branch</span>
+                      <div class="rounded bg-base-content/5 p-2">
+                        <span class="block text-base-content/50">Branch</span>
                         <strong class="block truncate">{{ gitStatus.branch || "n/a" }}</strong>
                       </div>
-                      <div class="rounded bg-white/5 p-2">
-                        <span class="block text-slate-500">{{ t("common.changes") }}</span>
+                      <div class="rounded bg-base-content/5 p-2">
+                        <span class="block text-base-content/50">{{ t("common.changes") }}</span>
                         <strong>{{ gitStatus.changedFiles }} / {{ gitStatus.untrackedFiles }}</strong>
                       </div>
                     </div>
-                    <p v-if="gitStatus?.remote" class="mt-3 truncate text-xs text-slate-500">{{ gitStatus.remote }}</p>
+                    <p v-if="gitStatus?.remote" class="mt-3 truncate text-xs text-base-content/50">{{ gitStatus.remote }}</p>
                     <div class="mt-3 flex flex-wrap gap-2">
                       <button
-                        class="btn btn-xs border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
+                        class="btn btn-xs border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10"
                         :disabled="gitLoading"
                         @click="loadGitStatus(activeProject.id)"
                       >
@@ -1206,13 +1221,13 @@ onMounted(() => {
                   </div>
                   <div class="mt-6 grid gap-2">
                     <button class="btn btn-primary" :disabled="!!busyAction" @click="launchProject(activeProject.id)">{{ t("common.launchProject") }}</button>
-                    <button class="btn border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" :disabled="!!busyAction" @click="toggleFavorite(activeProject.id)">
+                    <button class="btn border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :disabled="!!busyAction" @click="toggleFavorite(activeProject.id)">
                       {{ activeProject.favorite ? t("common.removeFavorite") : t("common.addFavorite") }}
                     </button>
                     <button class="btn btn-error btn-outline" :disabled="!!busyAction" @click="removeProject(activeProject.id)">{{ t("common.removeFromLibrary") }}</button>
                   </div>
                 </template>
-                <p v-else class="mt-3 text-sm text-slate-500">{{ t("projectPage.selectProject") }}</p>
+                <p v-else class="mt-3 text-sm text-base-content/50">{{ t("projectPage.selectProject") }}</p>
               </aside>
             </section>
 
@@ -1221,52 +1236,52 @@ onMounted(() => {
                 <article
                   v-for="editor in state.editors"
                   :key="editor.id"
-                  class="rounded-xl border border-white/10 bg-[#171b22] p-5"
+                  class="rounded-xl border border-base-content/10 bg-base-100 p-5"
                 >
                   <div class="flex items-start justify-between gap-4">
                     <div class="min-w-0">
-                      <p class="text-xs font-black uppercase text-sky-400">Installed Engine</p>
+                      <p class="text-xs font-black uppercase text-primary">Installed Engine</p>
                       <h3 class="mt-2 truncate text-2xl font-black">{{ editor.name }}</h3>
-                      <p class="font-bold text-slate-300">{{ editor.version }}</p>
+                      <p class="font-bold text-base-content/80">{{ editor.version }}</p>
                     </div>
-                    <span class="rounded px-2 py-1 text-xs font-black" :class="editor.isDefault ? 'bg-sky-500 text-white' : 'bg-white/10 text-slate-300'">
+                    <span class="rounded px-2 py-1 text-xs font-black" :class="editor.isDefault ? 'bg-primary text-primary-content' : 'bg-base-content/10 text-base-content/80'">
                       {{ editor.isDefault ? "DEFAULT" : editor.architecture }}
                     </span>
                   </div>
-                  <div class="mt-5 grid gap-2 rounded-lg bg-black/20 p-3 text-xs text-slate-500">
+                  <div class="mt-5 grid gap-2 rounded-lg bg-base-300/60 p-3 text-xs text-base-content/50">
                     <p class="truncate">{{ editor.executablePath }}</p>
                     <p class="truncate">{{ editor.installPath }}</p>
                   </div>
                   <div class="mt-5 flex flex-wrap gap-2">
-                    <button class="btn btn-sm border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" :disabled="editor.isDefault || !!busyAction" @click="setDefaultEditor(editor.id)">
+                    <button class="btn btn-sm border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :disabled="editor.isDefault || !!busyAction" @click="setDefaultEditor(editor.id)">
                       {{ t("common.makeDefault") }}
                     </button>
                     <button class="btn btn-sm btn-error btn-outline" :disabled="!!busyAction" @click="removeEditor(editor.id)">{{ t("common.remove") }}</button>
                   </div>
                 </article>
 
-                <div v-if="!state.editors.length" class="rounded-xl border border-dashed border-white/15 bg-[#171b22] p-8">
+                <div v-if="!state.editors.length" class="rounded-xl border border-dashed border-base-content/15 bg-base-100 p-8">
                   <h3 class="text-2xl font-black">{{ t("common.noEngineInstalled") }}</h3>
-                  <p class="mt-2 text-slate-500">{{ t("editors.noEngineBody") }}</p>
+                  <p class="mt-2 text-base-content/50">{{ t("editors.noEngineBody") }}</p>
                 </div>
               </div>
 
-              <form class="rounded-xl border border-white/10 bg-[#171b22] p-5" @submit.prevent="addEditor">
+              <form class="rounded-xl border border-base-content/10 bg-base-100 p-5" @submit.prevent="addEditor">
                 <div class="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                   <div>
-                    <p class="text-xs font-black uppercase text-sky-400">{{ t("editors.manualSetup") }}</p>
+                    <p class="text-xs font-black uppercase text-primary">{{ t("editors.manualSetup") }}</p>
                     <h2 class="text-2xl font-black">{{ t("editors.localInstall") }}</h2>
                   </div>
                   <button class="btn btn-primary" :disabled="!!busyAction">{{ t("editors.registerEditor") }}</button>
                 </div>
                 <div class="grid gap-3 lg:grid-cols-2">
-                  <input v-model="newEditor.name" class="input input-bordered border-white/10 bg-[#101216]" required :placeholder="t('common.name')" />
-                  <input v-model="newEditor.version" class="input input-bordered border-white/10 bg-[#101216]" required :placeholder="t('editors.version')" />
-                  <input v-model="newEditor.executablePath" class="input input-bordered border-white/10 bg-[#101216] lg:col-span-2" required :placeholder="t('editors.executablePath')" />
-                  <input v-model="newEditor.installPath" class="input input-bordered border-white/10 bg-[#101216]" required :placeholder="t('editors.installFolder')" />
-                  <input v-model="newEditor.architecture" class="input input-bordered border-white/10 bg-[#101216]" required :placeholder="t('editors.architecture')" />
+                  <input v-model="newEditor.name" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('common.name')" />
+                  <input v-model="newEditor.version" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('editors.version')" />
+                  <input v-model="newEditor.executablePath" class="input input-bordered border-base-content/10 bg-base-200 lg:col-span-2" required :placeholder="t('editors.executablePath')" />
+                  <input v-model="newEditor.installPath" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('editors.installFolder')" />
+                  <input v-model="newEditor.architecture" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('editors.architecture')" />
                 </div>
-                <label class="mt-4 flex w-fit cursor-pointer items-center gap-3 text-sm font-bold text-slate-300">
+                <label class="mt-4 flex w-fit cursor-pointer items-center gap-3 text-sm font-bold text-base-content/80">
                   <input v-model="newEditor.makeDefault" type="checkbox" class="checkbox checkbox-primary" />
                   {{ t("editors.setDefault") }}
                 </label>
@@ -1274,12 +1289,12 @@ onMounted(() => {
             </section>
 
             <section v-if="activeSection === 'releases'" class="grid gap-4">
-              <div class="rounded-xl border border-white/10 bg-[#171b22] p-5">
+              <div class="rounded-xl border border-base-content/10 bg-base-100 p-5">
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                   <div>
-                    <p class="text-xs font-black uppercase text-sky-400">{{ t("releases.officialGithub") }}</p>
+                    <p class="text-xs font-black uppercase text-primary">{{ t("releases.officialGithub") }}</p>
                     <h2 class="text-2xl font-black">{{ t("releases.title") }}</h2>
-                    <p class="mt-1 text-sm text-slate-500">
+                    <p class="mt-1 text-sm text-base-content/50">
                       {{ t("releases.showingBuilds", { os: systemProfile.os, arch: systemProfile.arch }) }}
                     </p>
                   </div>
@@ -1287,21 +1302,21 @@ onMounted(() => {
                     <div class="join">
                       <button
                         class="btn join-item btn-sm"
-                        :class="releaseFlavor === 'standard' ? 'btn-primary' : 'border-white/10 bg-white/5 text-slate-100 hover:bg-white/10'"
+                        :class="releaseFlavor === 'standard' ? 'btn-primary' : 'border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10'"
                         @click="releaseFlavor = 'standard'"
                       >
                         Standard
                       </button>
                       <button
                         class="btn join-item btn-sm"
-                        :class="releaseFlavor === 'dotnet' ? 'btn-primary' : 'border-white/10 bg-white/5 text-slate-100 hover:bg-white/10'"
+                        :class="releaseFlavor === 'dotnet' ? 'btn-primary' : 'border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10'"
                         @click="releaseFlavor = 'dotnet'"
                       >
                         .NET / Mono
                       </button>
                     </div>
                     <div class="flex flex-col gap-2 sm:flex-row">
-                    <input v-model="releaseQuery" class="input input-bordered border-white/10 bg-[#101216]" :placeholder="t('releases.filterPlaceholder')" />
+                    <input v-model="releaseQuery" class="input input-bordered border-base-content/10 bg-base-200" :placeholder="t('releases.filterPlaceholder')" />
                     <button class="btn btn-primary" :disabled="!!busyAction" @click="loadReleases">
                       {{ releasesLoaded ? t("common.refresh") : t("common.fetchReleases") }}
                     </button>
@@ -1310,27 +1325,27 @@ onMounted(() => {
                 </div>
               </div>
 
-              <div v-if="!releasesLoaded" class="rounded-xl border border-dashed border-white/15 bg-[#171b22] p-10 text-center">
+              <div v-if="!releasesLoaded" class="rounded-xl border border-dashed border-base-content/15 bg-base-100 p-10 text-center">
                 <h3 class="text-2xl font-black">{{ t("common.catalogNotLoaded") }}</h3>
-                <p class="mt-2 text-slate-500">{{ t("releases.fetchOfficial") }}</p>
+                <p class="mt-2 text-base-content/50">{{ t("releases.fetchOfficial") }}</p>
               </div>
 
               <article
                 v-for="release in filteredReleases"
                 :key="release.id"
-                class="rounded-xl border border-white/10 bg-[#171b22] p-5"
+                class="rounded-xl border border-base-content/10 bg-base-100 p-5"
               >
                 <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <div class="flex flex-wrap items-center gap-2">
                       <h3 class="text-2xl font-black">{{ release.tagName }}</h3>
-                      <span class="rounded px-2 py-1 text-xs font-black" :class="release.prerelease ? 'bg-amber-400 text-black' : 'bg-emerald-500 text-white'">
+                      <span class="rounded px-2 py-1 text-xs font-black" :class="release.prerelease ? 'bg-warning text-warning-content' : 'bg-success text-success-content'">
                         {{ release.prerelease ? "PREVIEW" : "STABLE" }}
                       </span>
                     </div>
-                    <p class="mt-1 text-sm text-slate-500">{{ release.name || "Godot release" }} - {{ releaseDate(release.publishedAt) }}</p>
+                    <p class="mt-1 text-sm text-base-content/50">{{ release.name || "Godot release" }} - {{ releaseDate(release.publishedAt) }}</p>
                   </div>
-                  <a class="btn btn-sm border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" :href="release.htmlUrl" target="_blank">
+                  <a class="btn btn-sm border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :href="release.htmlUrl" target="_blank">
                     GitHub
                   </a>
                 </div>
@@ -1339,15 +1354,15 @@ onMounted(() => {
                   <div
                     v-for="asset in featuredAssets(release)"
                     :key="asset.id"
-                    class="grid gap-4 rounded-lg border border-white/10 bg-black/20 p-4"
+                    class="grid gap-4 rounded-lg border border-base-content/10 bg-base-300/60 p-4"
                   >
                     <div>
-                      <span class="rounded bg-sky-400/15 px-2 py-1 text-xs font-black text-sky-300">{{ assetPlatform(asset.name) }}</span>
-                      <span class="ml-2 rounded bg-white/10 px-2 py-1 text-xs font-black text-slate-300">
+                      <span class="rounded bg-primary/15 px-2 py-1 text-xs font-black text-primary">{{ assetPlatform(asset.name) }}</span>
+                      <span class="ml-2 rounded bg-base-content/10 px-2 py-1 text-xs font-black text-base-content/80">
                         {{ releaseFlavor === "dotnet" ? ".NET" : "Standard" }}
                       </span>
-                      <p class="mt-3 min-h-12 break-all text-sm font-bold text-slate-200">{{ asset.name }}</p>
-                      <p class="mt-2 text-xs text-slate-500">{{ fileSize(asset.size) }}</p>
+                      <p class="mt-3 min-h-12 break-all text-sm font-bold text-base-content/90">{{ asset.name }}</p>
+                      <p class="mt-2 text-xs text-base-content/50">{{ fileSize(asset.size) }}</p>
                     </div>
                     <button
                       class="btn btn-sm"
@@ -1366,7 +1381,7 @@ onMounted(() => {
                     </button>
                   </div>
                 </div>
-                <div v-if="!featuredAssets(release).length" class="mt-5 rounded-lg border border-dashed border-white/10 bg-black/20 p-4 text-sm text-slate-500">
+                <div v-if="!featuredAssets(release).length" class="mt-5 rounded-lg border border-dashed border-base-content/10 bg-base-300/60 p-4 text-sm text-base-content/50">
                   {{ t("releases.noAsset") }} {{ releaseFlavor === "dotnet" ? ".NET/Mono" : "Standard" }} {{ t("releases.compatibleWith") }}
                   {{ systemProfile.os }} / {{ systemProfile.arch }} {{ t("releases.noAssetSuffix") }}
                 </div>
@@ -1374,20 +1389,20 @@ onMounted(() => {
             </section>
 
             <section v-if="activeSection === 'settings'" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <form class="rounded-xl border border-white/10 bg-[#171b22] p-5" @submit.prevent="saveSettings">
+              <form class="rounded-xl border border-base-content/10 bg-base-100 p-5" @submit.prevent="saveSettings">
                 <div>
-                  <p class="text-xs font-black uppercase text-sky-400">{{ t("settings.workspaceSettings") }}</p>
+                  <p class="text-xs font-black uppercase text-primary">{{ t("settings.workspaceSettings") }}</p>
                   <h2 class="text-2xl font-black">{{ t("settings.defaultPaths") }}</h2>
-                  <p class="mt-1 text-sm text-slate-500">{{ t("settings.control") }}</p>
+                  <p class="mt-1 text-sm text-base-content/50">{{ t("settings.control") }}</p>
                 </div>
                 <div class="mt-5 grid gap-4 lg:grid-cols-2">
                   <label class="grid gap-2">
-                    <span class="text-sm font-bold text-slate-300">{{ t("settings.installations") }}</span>
-                    <input v-model="settingsForm.defaultInstallPath" class="input input-bordered border-white/10 bg-[#101216]" required />
+                    <span class="text-sm font-bold text-base-content/80">{{ t("settings.installations") }}</span>
+                    <input v-model="settingsForm.defaultInstallPath" class="input input-bordered border-base-content/10 bg-base-200" required />
                   </label>
                   <label class="grid gap-2">
-                    <span class="text-sm font-bold text-slate-300">{{ t("nav.projects") }}</span>
-                    <input v-model="settingsForm.defaultProjectPath" class="input input-bordered border-white/10 bg-[#101216]" required />
+                    <span class="text-sm font-bold text-base-content/80">{{ t("nav.projects") }}</span>
+                    <input v-model="settingsForm.defaultProjectPath" class="input input-bordered border-base-content/10 bg-base-200" required />
                   </label>
                 </div>
                 <div>
@@ -1395,20 +1410,20 @@ onMounted(() => {
                 </div>
               </form>
 
-              <aside class="rounded-xl border border-white/10 bg-[#171b22] p-5">
-                <p class="text-xs font-black uppercase text-sky-400">{{ t("settings.appearance") }}</p>
+              <aside class="rounded-xl border border-base-content/10 bg-base-100 p-5">
+                <p class="text-xs font-black uppercase text-primary">{{ t("settings.appearance") }}</p>
                 <h2 class="mt-1 text-2xl font-black">{{ t("settings.preferences") }}</h2>
                 <div class="mt-5 grid gap-4">
                   <label class="grid gap-2">
-                    <span class="text-sm font-bold text-slate-300">{{ t("settings.language") }}</span>
-                    <select v-model="selectedLocale" class="select select-bordered border-white/10 bg-[#101216]">
+                    <span class="text-sm font-bold text-base-content/80">{{ t("settings.language") }}</span>
+                    <select v-model="selectedLocale" class="select select-bordered border-base-content/10 bg-base-200">
                       <option value="en">English</option>
                       <option value="pt">Português</option>
                     </select>
                   </label>
                   <label class="grid gap-2">
-                    <span class="text-sm font-bold text-slate-300">{{ t("settings.theme") }}</span>
-                    <select v-model="selectedTheme" class="select select-bordered border-white/10 bg-[#101216]">
+                    <span class="text-sm font-bold text-base-content/80">{{ t("settings.theme") }}</span>
+                    <select v-model="selectedTheme" class="select select-bordered border-base-content/10 bg-base-200">
                       <option value="godotforge">{{ t("settings.darkTheme") }}</option>
                       <option value="godotforge-light">{{ t("settings.lightTheme") }}</option>
                     </select>
@@ -1421,7 +1436,7 @@ onMounted(() => {
         </div>
 
         <div v-if="status || error || busyAction" class="toast toast-end z-30">
-          <div class="alert border border-white/10 shadow-xl" :class="error ? 'alert-error' : busyAction ? 'alert-info' : 'alert-success'">
+          <div class="alert border border-base-content/10 shadow-xl" :class="error ? 'alert-error' : busyAction ? 'alert-info' : 'alert-success'">
             <span>{{ error || busyAction || status }}</span>
           </div>
         </div>
