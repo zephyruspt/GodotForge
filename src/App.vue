@@ -5,90 +5,26 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "vue-i18n";
 import appLogo from "./assets/godot-forge-logo.png";
-
-type GodotEditor = {
-  id: string;
-  name: string;
-  version: string;
-  executablePath: string;
-  installPath: string;
-  architecture: string;
-  isDefault: boolean;
-};
-
-type GodotProject = {
-  id: string;
-  name: string;
-  path: string;
-  editorId?: string | null;
-  favorite: boolean;
-  lastOpened?: string | null;
-};
-
-type HubState = {
-  editors: GodotEditor[];
-  projects: GodotProject[];
-  settings: {
-    defaultInstallPath: string;
-    defaultProjectPath: string;
-  };
-};
-
-type GodotReleaseAsset = {
-  id: number;
-  name: string;
-  size: number;
-  browserDownloadUrl: string;
-};
-
-type GodotRelease = {
-  id: number;
-  name?: string | null;
-  tagName: string;
-  prerelease: boolean;
-  publishedAt?: string | null;
-  htmlUrl: string;
-  assets: GodotReleaseAsset[];
-};
-
-type SystemProfile = {
-  os: string;
-  arch: string;
-  godotPlatform: string;
-};
-
-type GitStatus = {
-  available: boolean;
-  isRepo: boolean;
-  branch?: string | null;
-  remote?: string | null;
-  changedFiles: number;
-  untrackedFiles: number;
-  summary: string;
-};
-
-type GitLogEntry = {
-  hash: string;
-  author: string;
-  relativeDate: string;
-  subject: string;
-};
-
-type GitBranch = {
-  name: string;
-  current: boolean;
-};
-
-type ThemeName = "godotforge" | "godotforge-light";
-type PathTarget =
-  | "newProjectRoot"
-  | "importProjectPath"
-  | "newEditorExecutable"
-  | "newEditorInstall"
-  | "settingsInstall"
-  | "settingsProject"
-  | "moveProjectDestination";
-type DeleteTarget = "project" | "editor";
+import BrandMark from "./components/BrandMark.vue";
+import DeleteConfirmDialog from "./components/DeleteConfirmDialog.vue";
+import PathField from "./components/PathField.vue";
+import SecurityPolicyDialog from "./components/SecurityPolicyDialog.vue";
+import SettingsPage from "./pages/SettingsPage.vue";
+import type {
+  DeleteTarget,
+  GitBranch,
+  GitLogEntry,
+  GitStatus,
+  GodotRelease,
+  GodotReleaseAsset,
+  HubState,
+  PathTarget,
+  ProjectDetailTab,
+  ReleaseFlavor,
+  Section,
+  SystemProfile,
+  ThemeName,
+} from "./types";
 
 const localeStorageKey = "godot-forge-locale";
 const themeStorageKey = "godot-forge-theme";
@@ -100,6 +36,7 @@ const state = reactive<HubState>({
   settings: {
     defaultInstallPath: "",
     defaultProjectPath: "",
+    releaseRepository: "godotengine/godot",
   },
 });
 
@@ -111,8 +48,9 @@ if (savedLocale === "en" || savedLocale === "pt") {
   locale.value = savedLocale;
 }
 
-const sections = ["projects", "editors", "settings"] as const;
-const activeSection = ref<(typeof sections)[number]>("projects");
+const sections: Section[] = ["projects", "editors", "settings"];
+const releaseFlavors: ReleaseFlavor[] = ["standard", "dotnet"];
+const activeSection = ref<Section>("projects");
 const activeProjectId = ref("");
 const busyAction = ref("");
 const error = ref("");
@@ -123,7 +61,6 @@ const dismissWelcome = ref(false);
 const releases = ref<GodotRelease[]>([]);
 const releasesLoaded = ref(false);
 const releaseQuery = ref("");
-const releaseFlavor = ref<"standard" | "dotnet">("standard");
 const selectedLocale = computed({
   get: () => locale.value,
   set: (value: string) => {
@@ -138,7 +75,7 @@ const gitStatus = ref<GitStatus | null>(null);
 const projectGitStatuses = ref<Record<string, GitStatus>>({});
 const gitLoading = ref(false);
 const projectPageOpen = ref(false);
-const projectDetailTab = ref<"overview" | "git" | "settings">("overview");
+const projectDetailTab = ref<ProjectDetailTab>("overview");
 const moveDestinationPath = ref("");
 const gitLog = ref<GitLogEntry[]>([]);
 const gitLogLoading = ref(false);
@@ -184,6 +121,7 @@ const newEditor = reactive({
 const settingsForm = reactive({
   defaultInstallPath: "",
   defaultProjectPath: "",
+  releaseRepository: "godotengine/godot",
 });
 
 const defaultEditor = computed(() => state.editors.find((editor) => editor.isDefault));
@@ -225,6 +163,7 @@ function applyState(nextState: HubState) {
   state.settings = nextState.settings;
   settingsForm.defaultInstallPath = nextState.settings.defaultInstallPath;
   settingsForm.defaultProjectPath = nextState.settings.defaultProjectPath;
+  settingsForm.releaseRepository = nextState.settings.releaseRepository;
   newProject.rootPath ||= nextState.settings.defaultProjectPath;
   newEditor.installPath ||= nextState.settings.defaultInstallPath;
 
@@ -512,8 +451,16 @@ function downloadEditor(release: GodotRelease, asset: GodotReleaseAsset) {
   });
 }
 
-function saveSettings() {
-  return runAction(t("status.pathsSaved"), () => invoke<HubState>("save_settings", { request: settingsForm }));
+async function saveSettings() {
+  const previousRepository = state.settings.releaseRepository;
+
+  await runAction(t("status.pathsSaved"), () => invoke<HubState>("save_settings", { request: settingsForm }));
+
+  if (previousRepository !== state.settings.releaseRepository) {
+    releasesLoaded.value = false;
+    releases.value = [];
+    await loadReleases();
+  }
 }
 
 function restoreDefaultSettings() {
@@ -669,7 +616,7 @@ function closeProjectPage() {
   projectDetailTab.value = "overview";
 }
 
-function navigateSection(section: (typeof sections)[number]) {
+function navigateSection(section: Section) {
   projectPageOpen.value = false;
   activeSection.value = section;
 }
@@ -694,16 +641,20 @@ function fileSize(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function featuredAssets(release: GodotRelease) {
+function releaseFlavorLabel(flavor: ReleaseFlavor) {
+  return flavor === "dotnet" ? ".NET / Mono" : "Standard";
+}
+
+function compatibleAssets(release: GodotRelease, flavor: ReleaseFlavor) {
   return release.assets
     .filter((asset) => {
       const name = asset.name.toLowerCase();
       const isZip = name.endsWith(".zip");
       const isEditor = !name.includes("export_templates") && !name.includes("debug_symbols");
-      const isFlavor = releaseFlavor.value === "dotnet" ? name.includes("mono") : !name.includes("mono");
+      const isFlavor = flavor === "dotnet" ? name.includes("mono") : !name.includes("mono");
       return isZip && isEditor && isFlavor && matchesCurrentSystem(name);
     })
-    .slice(0, 8);
+    .slice(0, 4);
 }
 
 function matchesCurrentSystem(assetName: string) {
@@ -760,8 +711,8 @@ function assetPlatform(name: string) {
   return "Build";
 }
 
-function sectionDescription(section: (typeof sections)[number]) {
-  const descriptions: Record<(typeof sections)[number], string> = {
+function sectionDescription(section: Section) {
+  const descriptions: Record<Section, string> = {
     projects: t("sections.projectsDescription"),
     editors: t("sections.editorsDescription"),
     settings: t("sections.settingsDescription"),
@@ -770,8 +721,8 @@ function sectionDescription(section: (typeof sections)[number]) {
   return descriptions[section];
 }
 
-function sectionTitle(section: (typeof sections)[number]) {
-  const titles: Record<(typeof sections)[number], string> = {
+function sectionTitle(section: Section) {
+  const titles: Record<Section, string> = {
     projects: t("sections.projectsTitle"),
     editors: t("sections.editorsTitle"),
     settings: t("sections.settingsTitle"),
@@ -820,9 +771,7 @@ onUnmounted(() => {
       <aside class="hidden border-r border-base-content/10 bg-base-300 lg:flex lg:flex-col">
         <div class="border-b border-base-content/10 p-5">
           <div class="flex items-center gap-3">
-            <div class="grid h-10 w-10 place-items-center rounded-md bg-primary/10 shadow-lg shadow-primary/20 ring-1 ring-base-content/10">
-              <img :src="appLogo" alt="Godot Forge" class="h-8 w-8 object-contain" />
-            </div>
+            <BrandMark :logo="appLogo" />
             <div>
               <strong class="block text-sm">Godot Forge</strong>
               <span class="text-xs text-base-content/50">Engine & Project Hub</span>
@@ -859,9 +808,7 @@ onUnmounted(() => {
       <section class="min-w-0">
         <header class="sticky top-0 z-20 border-b border-base-content/10 bg-base-200/95 backdrop-blur">
           <div class="flex min-h-16 items-center gap-4 px-4 lg:px-8">
-            <div class="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-primary/10 shadow-lg shadow-primary/20 ring-1 ring-base-content/10 lg:hidden">
-              <img :src="appLogo" alt="Godot Forge" class="h-7 w-7 object-contain" />
-            </div>
+            <BrandMark :logo="appLogo" size="sm" class="lg:hidden" />
             <div class="lg:hidden">
               <select v-model="activeSection" class="select select-bordered select-sm bg-base-100">
                 <option v-for="section in sections" :key="section" :value="section">{{ t(`nav.${section}`) }}</option>
@@ -1098,12 +1045,12 @@ onUnmounted(() => {
                     </label>
                     <label class="grid gap-2">
                       <span class="text-sm font-bold text-base-content/80">{{ t("projectPage.newDestinationPath") }}</span>
-                      <div class="flex gap-2">
-                        <input v-model="moveDestinationPath" class="input input-bordered min-w-0 flex-1 border-base-content/10 bg-base-200" required />
-                        <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="browsePath('moveProjectDestination')">
-                          {{ t("common.browse") }}
-                        </button>
-                      </div>
+                      <PathField
+                        v-model="moveDestinationPath"
+                        required
+                        :button-label="t('common.browse')"
+                        @browse="browsePath('moveProjectDestination')"
+                      />
                     </label>
                     <button class="btn btn-primary w-fit" :disabled="!!busyAction || moveDestinationPath === activeProject.path">
                       {{ t("projectPage.moveProject") }}
@@ -1270,12 +1217,13 @@ onUnmounted(() => {
                     </div>
                     <div class="grid gap-3">
                       <input v-model="newProject.name" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('projects.projectName')" />
-                      <div class="flex gap-2">
-                        <input v-model="newProject.rootPath" class="input input-bordered min-w-0 flex-1 border-base-content/10 bg-base-200" required :placeholder="t('projects.baseFolder')" />
-                        <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="browsePath('newProjectRoot')">
-                          {{ t("common.browse") }}
-                        </button>
-                      </div>
+                      <PathField
+                        v-model="newProject.rootPath"
+                        required
+                        :placeholder="t('projects.baseFolder')"
+                        :button-label="t('common.browse')"
+                        @browse="browsePath('newProjectRoot')"
+                      />
                       <select v-model="newProject.editorId" class="select select-bordered border-base-content/10 bg-base-200">
                         <option value="">{{ t("projects.useDefaultEditor") }}</option>
                         <option v-for="editor in state.editors" :key="editor.id" :value="editor.id">
@@ -1293,12 +1241,13 @@ onUnmounted(() => {
                     </div>
                     <div class="grid gap-3">
                       <input v-model="importProjectForm.name" class="input input-bordered border-base-content/10 bg-base-200" :placeholder="t('projects.optionalName')" />
-                      <div class="flex gap-2">
-                        <input v-model="importProjectForm.path" class="input input-bordered min-w-0 flex-1 border-base-content/10 bg-base-200" required :placeholder="t('projects.projectPathPlaceholder')" />
-                        <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="browsePath('importProjectPath')">
-                          {{ t("common.browse") }}
-                        </button>
-                      </div>
+                      <PathField
+                        v-model="importProjectForm.path"
+                        required
+                        :placeholder="t('projects.projectPathPlaceholder')"
+                        :button-label="t('common.browse')"
+                        @browse="browsePath('importProjectPath')"
+                      />
                       <select v-model="importProjectForm.editorId" class="select select-bordered border-base-content/10 bg-base-200">
                         <option value="">{{ t("projects.useDefaultEditor") }}</option>
                         <option v-for="editor in state.editors" :key="editor.id" :value="editor.id">
@@ -1420,18 +1369,21 @@ onUnmounted(() => {
                 <div class="grid gap-3 lg:grid-cols-2">
                   <input v-model="newEditor.name" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('common.name')" />
                   <input v-model="newEditor.version" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('editors.version')" />
-                  <div class="flex gap-2 lg:col-span-2">
-                    <input v-model="newEditor.executablePath" class="input input-bordered min-w-0 flex-1 border-base-content/10 bg-base-200" required :placeholder="t('editors.executablePath')" />
-                    <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="browsePath('newEditorExecutable', false)">
-                      {{ t("common.browse") }}
-                    </button>
-                  </div>
-                  <div class="flex gap-2">
-                    <input v-model="newEditor.installPath" class="input input-bordered min-w-0 flex-1 border-base-content/10 bg-base-200" required :placeholder="t('editors.installFolder')" />
-                    <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="browsePath('newEditorInstall')">
-                      {{ t("common.browse") }}
-                    </button>
-                  </div>
+                  <PathField
+                    v-model="newEditor.executablePath"
+                    class="lg:col-span-2"
+                    required
+                    :placeholder="t('editors.executablePath')"
+                    :button-label="t('common.browse')"
+                    @browse="browsePath('newEditorExecutable', false)"
+                  />
+                  <PathField
+                    v-model="newEditor.installPath"
+                    required
+                    :placeholder="t('editors.installFolder')"
+                    :button-label="t('common.browse')"
+                    @browse="browsePath('newEditorInstall')"
+                  />
                   <input v-model="newEditor.architecture" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('editors.architecture')" />
                 </div>
                 <label class="mt-4 flex w-fit cursor-pointer items-center gap-3 text-sm font-bold text-base-content/80">
@@ -1450,24 +1402,11 @@ onUnmounted(() => {
                     <p class="mt-1 text-sm text-base-content/50">
                       {{ t("releases.showingBuilds", { os: systemProfile.os, arch: systemProfile.arch }) }}
                     </p>
+                    <p class="mt-1 text-xs font-bold text-base-content/40">
+                      {{ t("releases.sourceRepository") }}: {{ state.settings.releaseRepository }}
+                    </p>
                   </div>
                   <div class="flex flex-col gap-2 lg:items-end">
-                    <div class="join">
-                      <button
-                        class="btn join-item btn-sm"
-                        :class="releaseFlavor === 'standard' ? 'btn-primary' : 'border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10'"
-                        @click="releaseFlavor = 'standard'"
-                      >
-                        Standard
-                      </button>
-                      <button
-                        class="btn join-item btn-sm"
-                        :class="releaseFlavor === 'dotnet' ? 'btn-primary' : 'border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10'"
-                        @click="releaseFlavor = 'dotnet'"
-                      >
-                        .NET / Mono
-                      </button>
-                    </div>
                     <div class="flex flex-col gap-2 sm:flex-row">
                     <input v-model="releaseQuery" class="input input-bordered border-base-content/10 bg-base-200" :placeholder="t('releases.filterPlaceholder')" />
                     <button class="btn btn-primary" :disabled="busyAction === t('status.fetchingReleases')" @click="loadReleases">
@@ -1505,155 +1444,85 @@ onUnmounted(() => {
                   </a>
                 </div>
 
-                <div class="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <div
-                    v-for="asset in featuredAssets(release)"
-                    :key="asset.id"
-                    class="grid gap-4 rounded-lg border border-base-content/10 bg-base-300/60 p-4"
+                <div class="mt-5 grid gap-3 xl:grid-cols-2">
+                  <section
+                    v-for="flavor in releaseFlavors"
+                    :key="flavor"
+                    class="rounded-lg border border-base-content/10 bg-base-300/60 p-4"
                   >
-                    <div>
-                      <span class="rounded bg-primary/15 px-2 py-1 text-xs font-black text-primary">{{ assetPlatform(asset.name) }}</span>
-                      <span class="ml-2 rounded bg-base-content/10 px-2 py-1 text-xs font-black text-base-content/80">
-                        {{ releaseFlavor === "dotnet" ? ".NET" : "Standard" }}
+                    <div class="flex items-center justify-between gap-3">
+                      <div>
+                        <p class="text-sm font-black">{{ releaseFlavorLabel(flavor) }}</p>
+                        <p class="mt-1 text-xs text-base-content/50">{{ t("releases.compatibleVariant") }}</p>
+                      </div>
+                      <span class="rounded bg-primary/15 px-2 py-1 text-xs font-black text-primary">
+                        {{ compatibleAssets(release, flavor).length }}
                       </span>
-                      <p class="mt-3 min-h-12 break-all text-sm font-bold text-base-content/90">{{ asset.name }}</p>
-                      <p class="mt-2 text-xs text-base-content/50">{{ fileSize(asset.size) }}</p>
                     </div>
-                    <button
-                      class="btn btn-sm"
-                      :class="isAssetInstalled(release, asset) ? 'btn-success' : 'btn-primary'"
-                      :disabled="!!busyAction || isAssetInstalled(release, asset)"
-                      @click="downloadEditor(release, asset)"
-                    >
-                      <span v-if="isAssetInstalling(release, asset)" class="loading loading-spinner loading-xs" />
-                      {{
-                        isAssetInstalling(release, asset)
-                          ? t("common.installing")
-                          : isAssetInstalled(release, asset)
-                            ? t("common.installed")
-                            : t("common.downloadAndInstall")
-                      }}
-                    </button>
-                  </div>
-                </div>
-                <div v-if="!featuredAssets(release).length" class="mt-5 rounded-lg border border-dashed border-base-content/10 bg-base-300/60 p-4 text-sm text-base-content/50">
-                  {{ t("releases.noAsset") }} {{ releaseFlavor === "dotnet" ? ".NET/Mono" : "Standard" }} {{ t("releases.compatibleWith") }}
-                  {{ systemProfile.os }} / {{ systemProfile.arch }} {{ t("releases.noAssetSuffix") }}
+
+                    <div v-if="compatibleAssets(release, flavor).length" class="mt-4 grid gap-3 md:grid-cols-2">
+                      <div
+                        v-for="asset in compatibleAssets(release, flavor)"
+                        :key="asset.id"
+                        class="grid gap-4 rounded-md border border-base-content/10 bg-base-100 p-4"
+                      >
+                        <div>
+                          <span class="rounded bg-primary/15 px-2 py-1 text-xs font-black text-primary">{{ assetPlatform(asset.name) }}</span>
+                          <p class="mt-3 min-h-12 break-all text-sm font-bold text-base-content/90">{{ asset.name }}</p>
+                          <p class="mt-2 text-xs text-base-content/50">{{ fileSize(asset.size) }}</p>
+                        </div>
+                        <button
+                          class="btn btn-sm"
+                          :class="isAssetInstalled(release, asset) ? 'btn-success' : 'btn-primary'"
+                          :disabled="!!busyAction || isAssetInstalled(release, asset)"
+                          @click="downloadEditor(release, asset)"
+                        >
+                          <span v-if="isAssetInstalling(release, asset)" class="loading loading-spinner loading-xs" />
+                          {{
+                            isAssetInstalling(release, asset)
+                              ? t("common.installing")
+                              : isAssetInstalled(release, asset)
+                                ? t("common.installed")
+                                : t("common.downloadAndInstall")
+                          }}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div v-else class="mt-4 rounded-md border border-dashed border-base-content/10 bg-base-100 p-4 text-sm text-base-content/50">
+                      {{ t("releases.noAsset") }} {{ releaseFlavorLabel(flavor) }} {{ t("releases.compatibleWith") }}
+                      {{ systemProfile.os }} / {{ systemProfile.arch }} {{ t("releases.noAssetSuffix") }}
+                    </div>
+                  </section>
                 </div>
               </article>
             </section>
 
-            <section v-if="activeSection === 'settings'" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <form class="rounded-xl border border-base-content/10 bg-base-100 p-5" @submit.prevent="saveSettings">
-                <div>
-                  <p class="text-xs font-black uppercase text-primary">{{ t("settings.workspaceSettings") }}</p>
-                  <h2 class="text-2xl font-black">{{ t("settings.defaultPaths") }}</h2>
-                  <p class="mt-1 text-sm text-base-content/50">{{ t("settings.control") }}</p>
-                </div>
-                <div class="mt-5 grid gap-4 lg:grid-cols-2">
-                  <label class="grid gap-2">
-                    <span class="text-sm font-bold text-base-content/80">{{ t("settings.installations") }}</span>
-                    <div class="flex gap-2">
-                      <input v-model="settingsForm.defaultInstallPath" class="input input-bordered min-w-0 flex-1 border-base-content/10 bg-base-200" required />
-                      <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="browsePath('settingsInstall')">
-                        {{ t("common.browse") }}
-                      </button>
-                    </div>
-                  </label>
-                  <label class="grid gap-2">
-                    <span class="text-sm font-bold text-base-content/80">{{ t("nav.projects") }}</span>
-                    <div class="flex gap-2">
-                      <input v-model="settingsForm.defaultProjectPath" class="input input-bordered min-w-0 flex-1 border-base-content/10 bg-base-200" required />
-                      <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="browsePath('settingsProject')">
-                        {{ t("common.browse") }}
-                      </button>
-                    </div>
-                  </label>
-                </div>
-                <div class="mt-5 flex flex-col gap-2 border-t border-base-content/10 pt-5 sm:flex-row sm:justify-end">
-                  <button class="btn border-base-content/10 bg-base-content/5" type="button" :disabled="!!busyAction" @click="restoreDefaultSettings">
-                    {{ t("settings.restoreDefaults") }}
-                  </button>
-                  <button class="btn btn-primary" :disabled="!!busyAction">
-                    {{ t("settings.saveWorkspace") }}
-                  </button>
-                </div>
-              </form>
-
-              <aside class="rounded-xl border border-base-content/10 bg-base-100 p-5">
-                <p class="text-xs font-black uppercase text-primary">{{ t("settings.appearance") }}</p>
-                <h2 class="mt-1 text-2xl font-black">{{ t("settings.preferences") }}</h2>
-                <div class="mt-5 grid gap-4">
-                  <label class="grid gap-2">
-                    <span class="text-sm font-bold text-base-content/80">{{ t("settings.language") }}</span>
-                    <select v-model="selectedLocale" class="select select-bordered border-base-content/10 bg-base-200">
-                      <option value="en">English</option>
-                      <option value="pt">Português</option>
-                    </select>
-                  </label>
-                  <label class="grid gap-2">
-                    <span class="text-sm font-bold text-base-content/80">{{ t("settings.theme") }}</span>
-                    <select v-model="selectedTheme" class="select select-bordered border-base-content/10 bg-base-200">
-                      <option value="godotforge">{{ t("settings.darkTheme") }}</option>
-                      <option value="godotforge-light">{{ t("settings.lightTheme") }}</option>
-                    </select>
-                  </label>
-                  <div class="rounded-lg border border-warning/20 bg-warning/10 p-4">
-                    <p class="text-xs font-black uppercase text-warning">{{ t("security.title") }}</p>
-                    <p class="mt-2 text-sm text-base-content/70">{{ t("security.body") }}</p>
-                    <button class="btn btn-sm btn-warning mt-4" type="button" @click="securityDialogOpen = true">
-                      {{ t("security.openPolicy") }}
-                    </button>
-                  </div>
-                </div>
-              </aside>
-            </section>
+            <SettingsPage
+              v-if="activeSection === 'settings'"
+              v-model:selected-locale="selectedLocale"
+              v-model:selected-theme="selectedTheme"
+              :settings-form="settingsForm"
+              :busy="!!busyAction"
+              @browse="browsePath"
+              @save="saveSettings"
+              @restore-defaults="restoreDefaultSettings"
+              @open-security="securityDialogOpen = true"
+            />
             </template>
           </template>
         </div>
 
-        <dialog class="modal" :open="securityDialogOpen">
-          <div class="modal-box border border-base-content/10 bg-base-100">
-            <h3 class="text-xl font-black">{{ t("security.title") }}</h3>
-            <div class="mt-4 grid gap-3 text-sm text-base-content/75">
-              <p>{{ t("security.ruleCredentials") }}</p>
-              <p>{{ t("security.ruleLocal") }}</p>
-              <p>{{ t("security.ruleReporting") }}</p>
-            </div>
-            <div class="modal-action">
-              <button class="btn btn-primary" type="button" @click="securityDialogOpen = false">
-                {{ t("common.close") }}
-              </button>
-            </div>
-          </div>
-          <form class="modal-backdrop" method="dialog" @submit.prevent="securityDialogOpen = false">
-            <button>{{ t("common.close") }}</button>
-          </form>
-        </dialog>
+        <SecurityPolicyDialog :open="securityDialogOpen" @close="securityDialogOpen = false" />
 
-        <dialog class="modal" :open="deleteDialog.open">
-          <div class="modal-box border border-base-content/10 bg-base-100">
-            <h3 class="text-xl font-black">{{ t("confirmDelete.title") }}</h3>
-            <p class="mt-3 text-sm text-base-content/70">
-              {{
-                deleteDialog.type === "project"
-                  ? t("confirmDelete.projectBody", { name: deleteDialog.name })
-                  : t("confirmDelete.editorBody", { name: deleteDialog.name })
-              }}
-            </p>
-            <div class="modal-action">
-              <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="cancelDelete">
-                {{ t("common.cancel") }}
-              </button>
-              <button class="btn btn-error" type="button" :disabled="!!busyAction" @click="confirmDelete">
-                {{ t("common.delete") }}
-              </button>
-            </div>
-          </div>
-          <form class="modal-backdrop" method="dialog" @submit.prevent="cancelDelete">
-            <button>{{ t("common.cancel") }}</button>
-          </form>
-        </dialog>
+        <DeleteConfirmDialog
+          :open="deleteDialog.open"
+          :delete-type="deleteDialog.type"
+          :name="deleteDialog.name"
+          :busy="!!busyAction"
+          @cancel="cancelDelete"
+          @confirm="confirmDelete"
+        />
 
         <div v-if="status || error || busyAction" class="toast toast-end z-30">
           <div class="alert border border-base-content/10 shadow-xl" :class="error ? 'alert-error' : busyAction ? 'alert-info' : 'alert-success'">

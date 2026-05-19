@@ -5,9 +5,12 @@ use std::{
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
+use tauri::Manager;
+
+#[cfg(target_os = "macos")]
 use tauri::{
     menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},
-    Emitter, Manager,
+    Emitter,
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -38,6 +41,8 @@ struct GodotProject {
 struct HubSettings {
     default_install_path: String,
     default_project_path: String,
+    #[serde(default = "default_release_repository")]
+    release_repository: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -137,6 +142,7 @@ struct CreateProjectRequest {
 struct UpdateSettingsRequest {
     default_install_path: String,
     default_project_path: String,
+    release_repository: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -177,6 +183,70 @@ fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+fn documents_dir() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(path) = xdg_documents_dir() {
+            return path;
+        }
+    }
+
+    env::var_os("USERPROFILE")
+        .map(|path| PathBuf::from(path).join("Documents"))
+        .unwrap_or_else(|| home_dir().join("Documents"))
+}
+
+#[cfg(target_os = "linux")]
+fn xdg_documents_dir() -> Option<PathBuf> {
+    let config_home = env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_dir().join(".config"));
+    let config = fs::read_to_string(config_home.join("user-dirs.dirs")).ok()?;
+
+    config.lines().find_map(|line| {
+        let value = line.strip_prefix("XDG_DOCUMENTS_DIR=")?;
+        let value = value.trim().trim_matches('"');
+        let expanded = value
+            .strip_prefix("$HOME/")
+            .map(|path| home_dir().join(path))
+            .unwrap_or_else(|| PathBuf::from(value));
+
+        Some(expanded)
+    })
+}
+
+fn default_install_path() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    {
+        return home_dir().join(".Godot").join("Editors");
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        return home_dir()
+            .join("Applications")
+            .join("GodotForge")
+            .join("Editors");
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .or_else(|| env::var_os("APPDATA").map(PathBuf::from))
+            .unwrap_or_else(|| home_dir().join("AppData").join("Local"))
+            .join("GodotForge")
+            .join("Editors");
+    }
+
+    #[allow(unreachable_code)]
+    home_dir().join(".godot-forge").join("editors")
+}
+
+fn default_project_path() -> PathBuf {
+    documents_dir().join("GodotForge").join("Projects")
+}
+
 fn config_path() -> PathBuf {
     let base = env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -195,24 +265,19 @@ fn now_id(prefix: &str) -> String {
 }
 
 fn default_state() -> HubState {
-    let home = home_dir();
-
     HubState {
         editors: Vec::new(),
         projects: Vec::new(),
         settings: HubSettings {
-            default_install_path: home
-                .join("Applications")
-                .join("Godot")
-                .to_string_lossy()
-                .to_string(),
-            default_project_path: home
-                .join("Godot")
-                .join("Projects")
-                .to_string_lossy()
-                .to_string(),
+            default_install_path: default_install_path().to_string_lossy().to_string(),
+            default_project_path: default_project_path().to_string_lossy().to_string(),
+            release_repository: default_release_repository(),
         },
     }
+}
+
+fn default_release_repository() -> String {
+    "godotengine/godot".to_string()
 }
 
 fn read_state() -> Result<HubState, String> {
@@ -247,9 +312,37 @@ fn project_name_from_path(path: &Path) -> String {
 
 fn http_client() -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
-        .user_agent("GodotForge/0.1 (+https://github.com/godotengine/godot)")
+        .user_agent("GodotForge/0.1")
         .build()
         .map_err(|error| error.to_string())
+}
+
+fn normalize_release_repository(value: &str) -> Result<String, String> {
+    let trimmed = value.trim().trim_end_matches('/');
+    let repository = trimmed
+        .strip_prefix("https://github.com/")
+        .or_else(|| trimmed.strip_prefix("http://github.com/"))
+        .unwrap_or(trimmed);
+    let parts = repository.split('/').collect::<Vec<_>>();
+
+    if parts.len() != 2 || parts.iter().any(|part| part.trim().is_empty()) {
+        return Err(
+            "Enter a GitHub repository as owner/name or https://github.com/owner/name.".into(),
+        );
+    }
+
+    if parts.iter().any(|part| {
+        part.chars().any(|character| {
+            !(character.is_ascii_alphanumeric()
+                || character == '-'
+                || character == '_'
+                || character == '.')
+        })
+    }) {
+        return Err("The release repository contains invalid characters.".into());
+    }
+
+    Ok(format!("{}/{}", parts[0], parts[1]))
 }
 
 fn version_from_tag(tag: &str) -> String {
@@ -728,9 +821,10 @@ fn push_project_git_branch(project_id: String) -> Result<GitStatus, String> {
 
 #[tauri::command]
 fn fetch_godot_releases(limit: Option<usize>) -> Result<Vec<GodotRelease>, String> {
+    let state = read_state()?;
+    let repository = normalize_release_repository(&state.settings.release_repository)?;
     let max_items = limit.unwrap_or(8).clamp(1, 20);
-    let url =
-        format!("https://api.github.com/repos/godotengine/godot/releases?per_page={max_items}");
+    let url = format!("https://api.github.com/repos/{repository}/releases?per_page={max_items}");
 
     http_client()?
         .get(url)
@@ -805,6 +899,7 @@ fn save_settings(request: UpdateSettingsRequest) -> Result<HubState, String> {
 
     state.settings.default_install_path = request.default_install_path;
     state.settings.default_project_path = request.default_project_path;
+    state.settings.release_repository = normalize_release_repository(&request.release_repository)?;
 
     write_state(&state)?;
     Ok(state)
@@ -1079,6 +1174,7 @@ fn launch_project(project_id: String) -> Result<HubState, String> {
     Ok(state)
 }
 
+#[cfg(target_os = "macos")]
 fn app_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let about = PredefinedMenuItem::about(
         handle,
@@ -1186,9 +1282,33 @@ fn app_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     Menu::with_items(handle, &[&app, &file, &view, &edit, &window, &help])
 }
 
+#[cfg(target_os = "linux")]
+fn sanitize_gtk_modules_for_linux() {
+    let Ok(modules) = env::var("GTK_MODULES") else {
+        return;
+    };
+
+    let filtered_modules = modules
+        .split(':')
+        .filter(|module| !module.trim().is_empty() && *module != "appmenu-gtk-module")
+        .collect::<Vec<_>>();
+
+    if filtered_modules.is_empty() {
+        env::remove_var("GTK_MODULES");
+    } else {
+        env::set_var("GTK_MODULES", filtered_modules.join(":"));
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    #[cfg(target_os = "linux")]
+    sanitize_gtk_modules_for_linux();
+
+    let builder = tauri::Builder::default();
+
+    #[cfg(target_os = "macos")]
+    let builder = builder
         .menu(app_menu)
         .on_menu_event(|app, event| match event.id() {
             id if id == "navigate-projects" => {
@@ -1207,7 +1327,9 @@ pub fn run() {
                 let _ = app.emit("menu-action", "security-policy");
             }
             _ => {}
-        })
+        });
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {

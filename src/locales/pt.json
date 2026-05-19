@@ -156,13 +156,15 @@
   },
   "releases": {
     "compatibleWith": "compatível com",
-    "fetchOfficial": "Busque releases oficiais e instale a build certa para seu sistema.",
+    "compatibleVariant": "Disponível para o sistema atual",
+    "fetchOfficial": "Busque releases e instale a build certa para seu sistema.",
     "filterPlaceholder": "Filtrar versão ou asset",
-    "loadingTitle": "Carregando releases oficiais",
+    "loadingTitle": "Carregando releases",
     "noAsset": "Nenhum asset",
     "noAssetSuffix": "nesta release.",
-    "officialGithub": "Releases oficiais do GitHub",
+    "officialGithub": "Releases do GitHub",
     "showingBuilds": "Mostrando builds compatíveis com {os} / {arch}.",
+    "sourceRepository": "Repositório de origem",
     "title": "Instalar versões da Godot"
   },
   "status": {
@@ -192,6 +194,8 @@
     "language": "Idioma",
     "lightTheme": "Claro",
     "preferences": "Preferências",
+    "releaseRepository": "Repositório de releases",
+    "releaseRepositoryHint": "Use owner/name ou uma URL do GitHub. Padrão: godotengine/godot.",
     "restoreDefaults": "Restaurar padrões",
     "saveWorkspace": "Salvar workspace",
     "theme": "Tema"
