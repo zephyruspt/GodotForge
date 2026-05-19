@@ -91,6 +91,7 @@ const deleteDialog = reactive({
 });
 const securityDialogOpen = ref(false);
 let unlistenMenuAction: UnlistenFn | null = null;
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
 const systemProfile = reactive<SystemProfile>({
   os: "unknown",
   arch: "unknown",
@@ -744,9 +745,31 @@ function gitStatusLabel(status?: GitStatus | null, loading = false) {
   return t("git.clean");
 }
 
+function clearToastTimer() {
+  if (!toastTimer) return;
+  clearTimeout(toastTimer);
+  toastTimer = null;
+}
+
 watch(selectedTheme, (theme) => {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem(themeStorageKey, theme);
+});
+
+watch([status, error, busyAction], ([nextStatus, nextError, nextBusyAction]) => {
+  clearToastTimer();
+
+  if (nextBusyAction || (!nextStatus && !nextError)) return;
+
+  const currentStatus = nextStatus;
+  const currentError = nextError;
+  toastTimer = setTimeout(
+    () => {
+      if (currentStatus && status.value === currentStatus) status.value = "";
+      if (currentError && error.value === currentError) error.value = "";
+    },
+    nextError ? 8000 : 3500,
+  );
 });
 
 onMounted(async () => {
@@ -761,6 +784,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  clearToastTimer();
   unlistenMenuAction?.();
 });
 </script>
@@ -768,7 +792,7 @@ onUnmounted(() => {
 <template>
   <main class="min-h-screen bg-base-200 text-base-content">
     <div class="grid min-h-screen lg:grid-cols-[248px_minmax(0,1fr)]">
-      <aside class="hidden border-r border-base-content/10 bg-base-300 lg:flex lg:flex-col">
+      <aside class="sticky top-0 hidden h-screen overflow-y-auto border-r border-base-content/10 bg-base-300 lg:flex lg:flex-col">
         <div class="border-b border-base-content/10 p-5">
           <div class="flex items-center gap-3">
             <BrandMark :logo="appLogo" />
