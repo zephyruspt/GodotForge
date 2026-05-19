@@ -1,8 +1,9 @@
 [package]
 name = "godot-forge"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Cross-platform desktop hub for managing Godot editors, projects, and Git workflows."
+authors = ["ZEPHYRUS PROSPERITY - UNIPESSOAL LDA"]
+license = "Apache-2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -24,4 +25,3 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.13.3", features = ["blocking", "json", "rustls"] }
 zip = "8.6.0"
-
