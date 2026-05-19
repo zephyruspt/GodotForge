@@ -125,6 +125,10 @@ The Godot Forge name, logo, icon set, banners, and other brand assets are owned 
 
 You may not use the Godot Forge logos, marks, or brand assets in redistributed projects, derivative applications, promotional material, or commercial products without prior written permission from ZEPHYRUS PROSPERITY - UNIPESSOAL LDA.
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting, social engineering guidance, and credential-handling expectations.
+
 ## License
 
 The source code is licensed under the Apache License 2.0. See [LICENSE](LICENSE).

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "vue-i18n";
 import appLogo from "./assets/godot-forge-logo.png";
@@ -151,6 +152,8 @@ const deleteDialog = reactive({
   name: "",
   closeProjectPage: false,
 });
+const securityDialogOpen = ref(false);
+let unlistenMenuAction: UnlistenFn | null = null;
 const systemProfile = reactive<SystemProfile>({
   os: "unknown",
   arch: "unknown",
@@ -633,6 +636,23 @@ async function confirmDelete() {
   }
 }
 
+function handleMenuAction(action: string) {
+  if (action === "projects" || action === "editors" || action === "settings") {
+    navigateSection(action);
+    return;
+  }
+
+  if (action === "refresh-releases") {
+    navigateSection("editors");
+    loadReleases();
+    return;
+  }
+
+  if (action === "security-policy") {
+    securityDialogOpen.value = true;
+  }
+}
+
 function openProjectPage(projectId: string) {
   activeProjectId.value = projectId;
   projectPageOpen.value = true;
@@ -780,8 +800,17 @@ watch(selectedTheme, (theme) => {
 
 onMounted(async () => {
   document.documentElement.dataset.theme = selectedTheme.value;
+  try {
+    unlistenMenuAction = await listen<string>("menu-action", (event) => handleMenuAction(event.payload));
+  } catch {
+    unlistenMenuAction = null;
+  }
   await loadSystemProfile();
   await Promise.all([loadState(), loadReleases()]);
+});
+
+onUnmounted(() => {
+  unlistenMenuAction?.();
 });
 </script>
 
@@ -1569,12 +1598,38 @@ onMounted(async () => {
                       <option value="godotforge-light">{{ t("settings.lightTheme") }}</option>
                     </select>
                   </label>
+                  <div class="rounded-lg border border-warning/20 bg-warning/10 p-4">
+                    <p class="text-xs font-black uppercase text-warning">{{ t("security.title") }}</p>
+                    <p class="mt-2 text-sm text-base-content/70">{{ t("security.body") }}</p>
+                    <button class="btn btn-sm btn-warning mt-4" type="button" @click="securityDialogOpen = true">
+                      {{ t("security.openPolicy") }}
+                    </button>
+                  </div>
                 </div>
               </aside>
             </section>
             </template>
           </template>
         </div>
+
+        <dialog class="modal" :open="securityDialogOpen">
+          <div class="modal-box border border-base-content/10 bg-base-100">
+            <h3 class="text-xl font-black">{{ t("security.title") }}</h3>
+            <div class="mt-4 grid gap-3 text-sm text-base-content/75">
+              <p>{{ t("security.ruleCredentials") }}</p>
+              <p>{{ t("security.ruleLocal") }}</p>
+              <p>{{ t("security.ruleReporting") }}</p>
+            </div>
+            <div class="modal-action">
+              <button class="btn btn-primary" type="button" @click="securityDialogOpen = false">
+                {{ t("common.close") }}
+              </button>
+            </div>
+          </div>
+          <form class="modal-backdrop" method="dialog" @submit.prevent="securityDialogOpen = false">
+            <button>{{ t("common.close") }}</button>
+          </form>
+        </dialog>
 
         <dialog class="modal" :open="deleteDialog.open">
           <div class="modal-box border border-base-content/10 bg-base-100">

@@ -8,6 +8,7 @@
     "catalogNotLoaded": "Catalog not loaded yet",
     "changes": "Changes",
     "checkout": "checkout",
+    "close": "Close",
     "configureInstallation": "Configure an installation",
     "configureProject": "Configure project",
     "create": "Create",
@@ -194,6 +195,14 @@
     "restoreDefaults": "Restore defaults",
     "saveWorkspace": "Save workspace",
     "theme": "Theme"
+  },
+  "security": {
+    "body": "Godot Forge never needs your GitHub password, Godot credentials, recovery codes, or private keys.",
+    "openPolicy": "Open security policy",
+    "ruleCredentials": "Maintainers and support channels should never ask for passwords, MFA codes, wallet keys, SSH private keys, or recovery phrases.",
+    "ruleLocal": "Editor paths, project paths, and Git operations are local to your machine unless you explicitly push through Git.",
+    "ruleReporting": "Treat unexpected requests for credentials or builds as suspicious and report them through the official security process.",
+    "title": "Security policy"
   },
   "confirmDelete": {
     "editorBody": "Remove \"{name}\" from the editor list? This will not delete files from disk.",

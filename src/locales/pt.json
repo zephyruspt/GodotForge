@@ -8,6 +8,7 @@
     "catalogNotLoaded": "Catálogo ainda não carregado",
     "changes": "Mudanças",
     "checkout": "trocar",
+    "close": "Fechar",
     "configureInstallation": "Configure uma instalação",
     "configureProject": "Configurar projeto",
     "create": "Criar",
@@ -194,6 +195,14 @@
     "restoreDefaults": "Restaurar padrões",
     "saveWorkspace": "Salvar workspace",
     "theme": "Tema"
+  },
+  "security": {
+    "body": "O Godot Forge nunca precisa da sua senha do GitHub, credenciais da Godot, códigos de recuperação ou chaves privadas.",
+    "openPolicy": "Abrir política de segurança",
+    "ruleCredentials": "Mantenedores e canais de suporte nunca devem pedir senhas, códigos MFA, chaves de carteira, chaves SSH privadas ou frases de recuperação.",
+    "ruleLocal": "Paths de editores, paths de projetos e operações Git ficam locais na sua máquina, exceto quando você explicitamente faz push pelo Git.",
+    "ruleReporting": "Trate pedidos inesperados de credenciais ou builds como suspeitos e reporte pelo processo oficial de segurança.",
+    "title": "Política de segurança"
   },
   "confirmDelete": {
     "editorBody": "Remover \"{name}\" da lista de editores? Isso não apaga arquivos do disco.",
