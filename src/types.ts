@@ -23,7 +23,10 @@ export type HubState = {
   settings: {
     defaultInstallPath: string;
     defaultProjectPath: string;
-    releaseRepository: string;
+    /** User-managed release repositories. The official Godot repository is always included by the backend. */
+    releaseRepositories: string[];
+    /** Optional GitHub token used to raise release API rate limits. */
+    githubToken: string;
   };
 };
 
@@ -42,6 +45,7 @@ export type GodotRelease = {
   publishedAt?: string | null;
   htmlUrl: string;
   assets: GodotReleaseAsset[];
+  sourceRepository: string;
 };
 
 export type SystemProfile = {
@@ -80,8 +84,6 @@ export type ProjectDetailTab = "overview" | "git" | "settings";
 export type PathTarget =
   | "newProjectRoot"
   | "importProjectPath"
-  | "newEditorExecutable"
-  | "newEditorInstall"
   | "settingsInstall"
   | "settingsProject"
   | "moveProjectDestination";

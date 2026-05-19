@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    env, fs, io,
+    env, fs,
+    hash::{Hash, Hasher},
+    io,
     path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
@@ -41,8 +43,12 @@ struct GodotProject {
 struct HubSettings {
     default_install_path: String,
     default_project_path: String,
-    #[serde(default = "default_release_repository")]
-    release_repository: String,
+    #[serde(default)]
+    release_repositories: Vec<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    github_token: String,
+    #[serde(default, skip_serializing)]
+    release_repository: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -54,24 +60,41 @@ struct HubState {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all(serialize = "camelCase", deserialize = "snake_case"))]
+#[serde(rename_all = "camelCase")]
 struct GodotReleaseAsset {
     id: u64,
     name: String,
     size: u64,
+    #[serde(alias = "browser_download_url")]
     browser_download_url: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all(serialize = "camelCase", deserialize = "snake_case"))]
+#[serde(rename_all = "camelCase")]
 struct GodotRelease {
     id: u64,
     name: Option<String>,
+    #[serde(alias = "tag_name")]
     tag_name: String,
     prerelease: bool,
+    #[serde(alias = "published_at")]
     published_at: Option<String>,
+    #[serde(alias = "html_url")]
     html_url: String,
     assets: Vec<GodotReleaseAsset>,
+    #[serde(default)]
+    source_repository: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReleaseCache {
+    repositories: Vec<String>,
+    limit: usize,
+    #[serde(default = "default_release_page")]
+    page: usize,
+    fetched_at: u64,
+    releases: Vec<GodotRelease>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -112,17 +135,6 @@ struct GitBranch {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AddEditorRequest {
-    name: String,
-    version: String,
-    executable_path: String,
-    install_path: String,
-    architecture: String,
-    make_default: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct ImportProjectRequest {
     name: Option<String>,
     path: String,
@@ -142,13 +154,15 @@ struct CreateProjectRequest {
 struct UpdateSettingsRequest {
     default_install_path: String,
     default_project_path: String,
-    release_repository: String,
+    release_repositories: Vec<String>,
+    github_token: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DownloadEditorRequest {
     release_tag: String,
+    release_repository: Option<String>,
     asset_name: String,
     asset_url: String,
     install_path: Option<String>,
@@ -174,6 +188,13 @@ struct GitBranchRequest {
 struct GitRemoteRequest {
     project_id: String,
     remote_url: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LegalDocument {
+    title: String,
+    body: String,
 }
 
 fn home_dir() -> PathBuf {
@@ -255,6 +276,19 @@ fn config_path() -> PathBuf {
     base.join("godot-forge").join("hub-state.json")
 }
 
+fn release_cache_path(repositories: &[String], limit: usize, page: usize) -> PathBuf {
+    let base = env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_dir().join(".config"));
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    repositories.hash(&mut hasher);
+
+    base.join("godot-forge").join(format!(
+        "release-cache-{limit}-{page}-{}.json",
+        hasher.finish()
+    ))
+}
+
 fn now_id(prefix: &str) -> String {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -271,13 +305,25 @@ fn default_state() -> HubState {
         settings: HubSettings {
             default_install_path: default_install_path().to_string_lossy().to_string(),
             default_project_path: default_project_path().to_string_lossy().to_string(),
-            release_repository: default_release_repository(),
+            release_repositories: Vec::new(),
+            github_token: String::new(),
+            release_repository: None,
         },
     }
 }
 
-fn default_release_repository() -> String {
-    "godotengine/godot".to_string()
+const OFFICIAL_RELEASE_REPOSITORY: &str = "godotengine/godot";
+const RELEASE_CACHE_TTL_SECONDS: u64 = 60 * 60 * 6;
+
+fn default_release_page() -> usize {
+    1
+}
+
+fn current_unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
 }
 
 fn read_state() -> Result<HubState, String> {
@@ -288,7 +334,24 @@ fn read_state() -> Result<HubState, String> {
     }
 
     let data = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    serde_json::from_str(&data).map_err(|error| error.to_string())
+    let mut state: HubState = serde_json::from_str(&data).map_err(|error| error.to_string())?;
+    normalize_settings(&mut state.settings)?;
+    Ok(state)
+}
+
+fn normalize_settings(settings: &mut HubSettings) -> Result<(), String> {
+    if settings.release_repositories.is_empty() {
+        settings.release_repositories = settings
+            .release_repository
+            .take()
+            .map(|repository| vec![repository])
+            .unwrap_or_default();
+    }
+
+    settings.release_repositories = normalize_release_repositories(&settings.release_repositories)?;
+    settings.github_token = settings.github_token.trim().to_string();
+    settings.release_repository = None;
+    Ok(())
 }
 
 fn write_state(state: &HubState) -> Result<(), String> {
@@ -299,6 +362,63 @@ fn write_state(state: &HubState) -> Result<(), String> {
     }
 
     let data = serde_json::to_string_pretty(state).map_err(|error| error.to_string())?;
+    fs::write(path, data).map_err(|error| error.to_string())
+}
+
+fn read_release_cache(repositories: &[String], limit: usize, page: usize) -> Option<ReleaseCache> {
+    let data = fs::read_to_string(release_cache_path(repositories, limit, page)).ok()?;
+    let cache: ReleaseCache = serde_json::from_str(&data).ok()?;
+
+    if cache.repositories == repositories && cache.limit == limit && cache.page == page {
+        Some(cache)
+    } else {
+        None
+    }
+}
+
+fn fresh_cached_releases(
+    repositories: &[String],
+    limit: usize,
+    page: usize,
+) -> Option<Vec<GodotRelease>> {
+    let cache = read_release_cache(repositories, limit, page)?;
+    let age = current_unix_seconds().saturating_sub(cache.fetched_at);
+
+    if age <= RELEASE_CACHE_TTL_SECONDS {
+        Some(cache.releases)
+    } else {
+        None
+    }
+}
+
+fn stale_cached_releases(
+    repositories: &[String],
+    limit: usize,
+    page: usize,
+) -> Option<Vec<GodotRelease>> {
+    read_release_cache(repositories, limit, page).map(|cache| cache.releases)
+}
+
+fn write_release_cache(
+    repositories: Vec<String>,
+    limit: usize,
+    page: usize,
+    releases: Vec<GodotRelease>,
+) -> Result<(), String> {
+    let path = release_cache_path(&repositories, limit, page);
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+
+    let cache = ReleaseCache {
+        repositories,
+        limit,
+        page,
+        fetched_at: current_unix_seconds(),
+        releases,
+    };
+    let data = serde_json::to_string_pretty(&cache).map_err(|error| error.to_string())?;
     fs::write(path, data).map_err(|error| error.to_string())
 }
 
@@ -317,17 +437,36 @@ fn http_client() -> Result<reqwest::blocking::Client, String> {
         .map_err(|error| error.to_string())
 }
 
+fn github_token(settings: &HubSettings) -> Option<String> {
+    env::var("GITHUB_TOKEN")
+        .or_else(|_| env::var("GH_TOKEN"))
+        .ok()
+        .or_else(|| Some(settings.github_token.clone()))
+        .map(|token| token.trim().to_string())
+        .filter(|token| !token.is_empty())
+}
+
+fn github_release_error(error: reqwest::Error) -> String {
+    if error.status() == Some(reqwest::StatusCode::FORBIDDEN) {
+        return "GitHub returned 403 Forbidden while loading releases. You may be rate limited on the public API. Wait for the limit to reset, configure a GitHub token in Settings, or start Godot Forge with GITHUB_TOKEN/GH_TOKEN set so release requests are authenticated.".into();
+    }
+
+    error.to_string()
+}
+
 fn normalize_release_repository(value: &str) -> Result<String, String> {
-    let trimmed = value.trim().trim_end_matches('/');
+    let trimmed = value.trim().trim_end_matches('/').trim_end_matches(".git");
     let repository = trimmed
-        .strip_prefix("https://github.com/")
+        .strip_prefix("git@github.com:")
+        .or_else(|| trimmed.strip_prefix("ssh://git@github.com/"))
+        .or_else(|| trimmed.strip_prefix("https://github.com/"))
         .or_else(|| trimmed.strip_prefix("http://github.com/"))
         .unwrap_or(trimmed);
     let parts = repository.split('/').collect::<Vec<_>>();
 
     if parts.len() != 2 || parts.iter().any(|part| part.trim().is_empty()) {
         return Err(
-            "Enter a GitHub repository as owner/name or https://github.com/owner/name.".into(),
+            "Automatic release downloads currently support GitHub repositories. Use owner/name, a GitHub URL, or a GitHub SSH URL.".into(),
         );
     }
 
@@ -343,6 +482,52 @@ fn normalize_release_repository(value: &str) -> Result<String, String> {
     }
 
     Ok(format!("{}/{}", parts[0], parts[1]))
+}
+
+fn normalize_release_repositories(values: &[String]) -> Result<Vec<String>, String> {
+    let mut repositories = Vec::new();
+
+    for value in values {
+        if value.trim().is_empty() {
+            continue;
+        }
+
+        let repository = normalize_release_repository(value)?;
+        if repository == OFFICIAL_RELEASE_REPOSITORY {
+            continue;
+        }
+
+        if !repositories.contains(&repository) {
+            repositories.push(repository);
+        }
+    }
+
+    Ok(repositories)
+}
+
+fn safe_folder_name(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric()
+                || character == '-'
+                || character == '_'
+                || character == '.'
+            {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+fn ensure_editor_installed(state: &HubState) -> Result<(), String> {
+    if state.editors.is_empty() {
+        Err("Install a Godot editor before creating or editing projects.".into())
+    } else {
+        Ok(())
+    }
 }
 
 fn version_from_tag(tag: &str) -> String {
@@ -491,6 +676,24 @@ fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
 #[tauri::command]
 fn load_hub_state() -> Result<HubState, String> {
     read_state()
+}
+
+#[tauri::command]
+fn read_legal_document(document: String) -> Result<LegalDocument, String> {
+    let (title, body) = match document.as_str() {
+        "source" => ("Source Code License", include_str!("../../LICENSE")),
+        "brand" => (
+            "Brand Assets License",
+            include_str!("../../LICENSE-BRAND-ASSETS.md"),
+        ),
+        "notice" => ("Notice", include_str!("../../NOTICE")),
+        _ => return Err("Unknown legal document.".into()),
+    };
+
+    Ok(LegalDocument {
+        title: title.into(),
+        body: body.into(),
+    })
 }
 
 #[tauri::command]
@@ -820,21 +1023,83 @@ fn push_project_git_branch(project_id: String) -> Result<GitStatus, String> {
 }
 
 #[tauri::command]
-fn fetch_godot_releases(limit: Option<usize>) -> Result<Vec<GodotRelease>, String> {
+fn fetch_godot_releases(
+    limit: Option<usize>,
+    page: Option<usize>,
+) -> Result<Vec<GodotRelease>, String> {
     let state = read_state()?;
-    let repository = normalize_release_repository(&state.settings.release_repository)?;
+    let mut repositories = vec![OFFICIAL_RELEASE_REPOSITORY.to_string()];
+    repositories.extend(normalize_release_repositories(
+        &state.settings.release_repositories,
+    )?);
     let max_items = limit.unwrap_or(8).clamp(1, 20);
-    let url = format!("https://api.github.com/repos/{repository}/releases?per_page={max_items}");
+    let page = page.unwrap_or(1).clamp(1, 50);
 
-    http_client()?
-        .get(url)
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .map_err(|error| error.to_string())?
-        .error_for_status()
-        .map_err(|error| error.to_string())?
-        .json::<Vec<GodotRelease>>()
-        .map_err(|error| error.to_string())
+    if let Some(releases) = fresh_cached_releases(&repositories, max_items, page) {
+        return Ok(releases);
+    }
+
+    let client = http_client()?;
+    let token = github_token(&state.settings);
+    let mut releases = Vec::new();
+
+    for repository in &repositories {
+        let url = format!(
+            "https://api.github.com/repos/{repository}/releases?per_page={max_items}&page={page}"
+        );
+        let mut request = client
+            .get(url)
+            .header("Accept", "application/vnd.github+json");
+
+        if let Some(token) = &token {
+            request = request.bearer_auth(token);
+        }
+
+        let response = match request.send() {
+            Ok(response) => response,
+            Err(error) => {
+                if let Some(cached_releases) = stale_cached_releases(&repositories, max_items, page)
+                {
+                    return Ok(cached_releases);
+                }
+
+                return Err(github_release_error(error));
+            }
+        };
+        let response = match response.error_for_status() {
+            Ok(response) => response,
+            Err(error) => {
+                if let Some(cached_releases) = stale_cached_releases(&repositories, max_items, page)
+                {
+                    return Ok(cached_releases);
+                }
+
+                return Err(github_release_error(error));
+            }
+        };
+
+        let mut repository_releases = match response.json::<Vec<GodotRelease>>() {
+            Ok(repository_releases) => repository_releases,
+            Err(error) => {
+                if let Some(cached_releases) = stale_cached_releases(&repositories, max_items, page)
+                {
+                    return Ok(cached_releases);
+                }
+
+                return Err(github_release_error(error));
+            }
+        };
+
+        for release in &mut repository_releases {
+            release.source_repository = repository.clone();
+        }
+
+        releases.extend(repository_releases);
+    }
+
+    releases.sort_by(|left, right| right.published_at.cmp(&left.published_at));
+    let _ = write_release_cache(repositories, max_items, page, releases.clone());
+    Ok(releases)
 }
 
 #[tauri::command]
@@ -845,7 +1110,14 @@ fn download_godot_editor(request: DownloadEditorRequest) -> Result<HubState, Str
         .filter(|path| !path.trim().is_empty())
         .unwrap_or_else(|| state.settings.default_install_path.clone());
     let install_root = PathBuf::from(install_root);
-    let release_folder = install_root.join(request.release_tag.replace('/', "-"));
+    let source_folder = request
+        .release_repository
+        .as_deref()
+        .map(safe_folder_name)
+        .unwrap_or_else(|| "custom".to_string());
+    let release_folder = install_root
+        .join(source_folder)
+        .join(request.release_tag.replace('/', "-"));
     let archive_path = release_folder.join(&request.asset_name);
 
     fs::create_dir_all(&release_folder).map_err(|error| error.to_string())?;
@@ -899,7 +1171,10 @@ fn save_settings(request: UpdateSettingsRequest) -> Result<HubState, String> {
 
     state.settings.default_install_path = request.default_install_path;
     state.settings.default_project_path = request.default_project_path;
-    state.settings.release_repository = normalize_release_repository(&request.release_repository)?;
+    state.settings.release_repositories =
+        normalize_release_repositories(&request.release_repositories)?;
+    state.settings.github_token = request.github_token.trim().to_string();
+    state.settings.release_repository = None;
 
     write_state(&state)?;
     Ok(state)
@@ -909,35 +1184,6 @@ fn save_settings(request: UpdateSettingsRequest) -> Result<HubState, String> {
 fn restore_default_settings() -> Result<HubState, String> {
     let mut state = read_state()?;
     state.settings = default_state().settings;
-
-    write_state(&state)?;
-    Ok(state)
-}
-
-#[tauri::command]
-fn add_editor(request: AddEditorRequest) -> Result<HubState, String> {
-    let mut state = read_state()?;
-    let executable = PathBuf::from(request.executable_path.trim());
-
-    if !executable.exists() {
-        return Err("The provided executable does not exist.".into());
-    }
-
-    if request.make_default || state.editors.is_empty() {
-        for editor in &mut state.editors {
-            editor.is_default = false;
-        }
-    }
-
-    state.editors.push(GodotEditor {
-        id: now_id("editor"),
-        name: request.name.trim().to_string(),
-        version: request.version.trim().to_string(),
-        executable_path: executable.to_string_lossy().to_string(),
-        install_path: request.install_path.trim().to_string(),
-        architecture: request.architecture.trim().to_string(),
-        is_default: request.make_default || state.editors.is_empty(),
-    });
 
     write_state(&state)?;
     Ok(state)
@@ -988,6 +1234,7 @@ fn set_default_editor(editor_id: String) -> Result<HubState, String> {
 #[tauri::command]
 fn import_project(request: ImportProjectRequest) -> Result<HubState, String> {
     let mut state = read_state()?;
+    ensure_editor_installed(&state)?;
     let path = PathBuf::from(request.path.trim());
 
     if !path.join("project.godot").exists() {
@@ -1022,6 +1269,7 @@ fn import_project(request: ImportProjectRequest) -> Result<HubState, String> {
 #[tauri::command]
 fn create_project(request: CreateProjectRequest) -> Result<HubState, String> {
     let mut state = read_state()?;
+    ensure_editor_installed(&state)?;
     let project_name = request.name.trim();
 
     if project_name.is_empty() {
@@ -1074,6 +1322,7 @@ fn remove_project(project_id: String) -> Result<HubState, String> {
 #[tauri::command]
 fn move_project(request: MoveProjectRequest) -> Result<HubState, String> {
     let mut state = read_state()?;
+    ensure_editor_installed(&state)?;
     let project = state
         .projects
         .iter()
@@ -1232,15 +1481,6 @@ fn app_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         &[&projects, &editors, &settings, &file_separator, &close],
     )?;
 
-    let refresh_releases = MenuItem::with_id(
-        handle,
-        "refresh-releases",
-        "Refresh Godot Releases",
-        true,
-        Some("CmdOrCtrl+R"),
-    )?;
-    let view = Submenu::with_items(handle, "View", true, &[&refresh_releases])?;
-
     let undo = PredefinedMenuItem::undo(handle, None)?;
     let redo = PredefinedMenuItem::redo(handle, None)?;
     let edit_separator_one = PredefinedMenuItem::separator(handle)?;
@@ -1279,7 +1519,7 @@ fn app_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     )?;
     let help = Submenu::with_items(handle, "Help", true, &[&security])?;
 
-    Menu::with_items(handle, &[&app, &file, &view, &edit, &window, &help])
+    Menu::with_items(handle, &[&app, &file, &edit, &window, &help])
 }
 
 #[cfg(target_os = "linux")]
@@ -1320,9 +1560,6 @@ pub fn run() {
             id if id == "navigate-settings" => {
                 let _ = app.emit("menu-action", "settings");
             }
-            id if id == "refresh-releases" => {
-                let _ = app.emit("menu-action", "refresh-releases");
-            }
             id if id == "security-policy" => {
                 let _ = app.emit("menu-action", "security-policy");
             }
@@ -1346,6 +1583,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_hub_state,
             detect_system_profile,
+            read_legal_document,
             get_project_git_status,
             init_project_git,
             get_project_git_log,
@@ -1358,7 +1596,6 @@ pub fn run() {
             download_godot_editor,
             save_settings,
             restore_default_settings,
-            add_editor,
             remove_editor,
             set_default_editor,
             import_project,

@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "vue-i18n";
 import appLogo from "./assets/godot-forge-logo.png";
+import AppSidebar from "./components/AppSidebar.vue";
 import BrandMark from "./components/BrandMark.vue";
 import DeleteConfirmDialog from "./components/DeleteConfirmDialog.vue";
 import PathField from "./components/PathField.vue";
 import SecurityPolicyDialog from "./components/SecurityPolicyDialog.vue";
+import WelcomeScreen from "./components/WelcomeScreen.vue";
+import EditorsPage from "./pages/EditorsPage.vue";
 import SettingsPage from "./pages/SettingsPage.vue";
 import type {
   DeleteTarget,
@@ -28,6 +32,7 @@ import type {
 
 const localeStorageKey = "godot-forge-locale";
 const themeStorageKey = "godot-forge-theme";
+const onboardingStorageKey = "godot-forge-onboarding-complete";
 const themeNames: ThemeName[] = ["godotforge", "godotforge-light"];
 
 const state = reactive<HubState>({
@@ -36,7 +41,8 @@ const state = reactive<HubState>({
   settings: {
     defaultInstallPath: "",
     defaultProjectPath: "",
-    releaseRepository: "godotengine/godot",
+    releaseRepositories: [],
+    githubToken: "",
   },
 });
 
@@ -49,18 +55,32 @@ if (savedLocale === "en" || savedLocale === "pt") {
 }
 
 const sections: Section[] = ["projects", "editors", "settings"];
-const releaseFlavors: ReleaseFlavor[] = ["standard", "dotnet"];
+const releasePageSize = 6;
+const releaseChannelFilters = ["all", "stable", "preview"] as const;
+const releaseVariantFilters = ["all", "standard", "dotnet"] as const;
+const releasePlatformFilters = ["linux", "win", "macos"] as const;
+const releaseArchFilters = ["x86_64", "arm64"] as const;
 const activeSection = ref<Section>("projects");
 const activeProjectId = ref("");
 const busyAction = ref("");
 const error = ref("");
 const status = ref("");
 const loading = ref(true);
+const appVersion = ref("");
 const projectSearch = ref("");
-const dismissWelcome = ref(false);
+const showWelcome = ref(localStorage.getItem(onboardingStorageKey) !== "true");
+const welcomeSlide = ref(0);
 const releases = ref<GodotRelease[]>([]);
 const releasesLoaded = ref(false);
+const releaseFiltersOpen = ref(false);
+const releasePage = ref(1);
+const hasMoreReleases = ref(true);
 const releaseQuery = ref("");
+const releaseRepositoryFilter = ref("all");
+const releaseChannelFilter = ref<"all" | "stable" | "preview">("all");
+const releaseVariantFilter = ref<"all" | ReleaseFlavor>("all");
+const releasePlatformFilter = ref<(typeof releasePlatformFilters)[number]>("linux");
+const releaseArchFilter = ref<(typeof releaseArchFilters)[number]>("x86_64");
 const selectedLocale = computed({
   get: () => locale.value,
   set: (value: string) => {
@@ -110,23 +130,36 @@ const importProjectForm = reactive({
   editorId: "",
 });
 
-const newEditor = reactive({
-  name: "Godot",
-  version: "4.3",
-  executablePath: "",
-  installPath: "",
-  architecture: "x86_64",
-  makeDefault: true,
-});
-
 const settingsForm = reactive({
   defaultInstallPath: "",
   defaultProjectPath: "",
-  releaseRepository: "godotengine/godot",
+  releaseRepositories: [] as string[],
+  githubToken: "",
 });
 
 const defaultEditor = computed(() => state.editors.find((editor) => editor.isDefault));
-const hasOnboarding = computed(() => !dismissWelcome.value && (!state.editors.length || !state.projects.length));
+const releaseSourceCount = computed(() => 1 + state.settings.releaseRepositories.length);
+const releaseRepositoryOptions = computed(() => {
+  const repositories = releases.value.map((release) => release.sourceRepository).filter(Boolean);
+  return [...new Set(repositories)].sort((left, right) => left.localeCompare(right));
+});
+const welcomeSlides = computed(() => [
+  {
+    label: t("onboarding.slideOneLabel"),
+    title: t("onboarding.slideOneTitle"),
+    body: t("onboarding.slideOneBody"),
+  },
+  {
+    label: t("onboarding.slideTwoLabel"),
+    title: t("onboarding.slideTwoTitle"),
+    body: t("onboarding.slideTwoBody"),
+  },
+  {
+    label: t("onboarding.slideThreeLabel"),
+    title: t("onboarding.slideThreeTitle"),
+    body: t("onboarding.slideThreeBody"),
+  },
+]);
 
 const sortedProjects = computed(() => {
   const query = projectSearch.value.trim().toLowerCase();
@@ -150,13 +183,29 @@ const projectEditor = computed(() => {
 
 const filteredReleases = computed(() => {
   const query = releaseQuery.value.trim().toLowerCase();
-  if (!query) return releases.value;
-
   return releases.value.filter((release) => {
+    if (releaseRepositoryFilter.value !== "all" && release.sourceRepository !== releaseRepositoryFilter.value) {
+      return false;
+    }
+
+    if (releaseChannelFilter.value === "stable" && release.prerelease) return false;
+    if (releaseChannelFilter.value === "preview" && !release.prerelease) return false;
+
+    if (!query) return true;
     const haystack = `${release.tagName} ${release.name ?? ""} ${release.assets.map((asset) => asset.name).join(" ")}`;
     return haystack.toLowerCase().includes(query);
   });
 });
+const releaseResultLabel = computed(() => t("releases.resultCount", { count: filteredReleases.value.length }));
+
+function clearReleaseFilters() {
+  releaseQuery.value = "";
+  releaseRepositoryFilter.value = "all";
+  releaseChannelFilter.value = "all";
+  releaseVariantFilter.value = "all";
+  releasePlatformFilter.value = normalizedPlatform(systemProfile.godotPlatform);
+  releaseArchFilter.value = normalizedArch(systemProfile.arch);
+}
 
 function applyState(nextState: HubState) {
   state.editors = nextState.editors;
@@ -164,9 +213,9 @@ function applyState(nextState: HubState) {
   state.settings = nextState.settings;
   settingsForm.defaultInstallPath = nextState.settings.defaultInstallPath;
   settingsForm.defaultProjectPath = nextState.settings.defaultProjectPath;
-  settingsForm.releaseRepository = nextState.settings.releaseRepository;
+  settingsForm.releaseRepositories = [...nextState.settings.releaseRepositories];
+  settingsForm.githubToken = nextState.settings.githubToken;
   newProject.rootPath ||= nextState.settings.defaultProjectPath;
-  newEditor.installPath ||= nextState.settings.defaultInstallPath;
 
   if (!activeProjectId.value || !state.projects.some((project) => project.id === activeProjectId.value)) {
     activeProjectId.value = state.projects[0]?.id ?? "";
@@ -387,17 +436,41 @@ async function loadSystemProfile() {
     systemProfile.os = profile.os;
     systemProfile.arch = profile.arch;
     systemProfile.godotPlatform = profile.godotPlatform;
+    releasePlatformFilter.value = normalizedPlatform(profile.godotPlatform);
+    releaseArchFilter.value = normalizedArch(profile.arch);
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught);
   }
 }
 
-async function loadReleases() {
+async function loadAppMetadata() {
+  try {
+    appVersion.value = await getVersion();
+  } catch {
+    appVersion.value = "";
+  }
+}
+
+async function loadReleases(options: { append?: boolean } = {}) {
   busyAction.value = t("status.fetchingReleases");
   error.value = "";
 
   try {
-    releases.value = await invoke<GodotRelease[]>("fetch_godot_releases", { limit: 8 });
+    const nextPage = options.append ? releasePage.value + 1 : 1;
+    const nextReleases = await invoke<GodotRelease[]>("fetch_godot_releases", { limit: releasePageSize, page: nextPage });
+    let addedCount = nextReleases.length;
+
+    if (options.append) {
+      const knownKeys = new Set(releases.value.map((release) => `${release.sourceRepository}:${release.id}`));
+      const uniqueReleases = nextReleases.filter((release) => !knownKeys.has(`${release.sourceRepository}:${release.id}`));
+      addedCount = uniqueReleases.length;
+      releases.value = [...releases.value, ...uniqueReleases];
+    } else {
+      releases.value = nextReleases;
+    }
+
+    releasePage.value = nextPage;
+    hasMoreReleases.value = addedCount > 0 && nextReleases.length >= releasePageSize * releaseSourceCount.value;
     releasesLoaded.value = true;
     status.value = t("status.releasesLoaded");
   } catch (caught) {
@@ -407,7 +480,16 @@ async function loadReleases() {
   }
 }
 
+function loadMoreReleases() {
+  return loadReleases({ append: true });
+}
+
 function createProject() {
+  if (!state.editors.length) {
+    error.value = t("projects.editorRequired");
+    return;
+  }
+
   return runAction(t("status.projectCreated"), () =>
     invoke<HubState>("create_project", {
       request: { ...newProject, editorId: newProject.editorId || null },
@@ -416,6 +498,11 @@ function createProject() {
 }
 
 function importProject() {
+  if (!state.editors.length) {
+    error.value = t("projects.editorRequired");
+    return;
+  }
+
   return runAction(t("status.projectImported"), () =>
     invoke<HubState>("import_project", {
       request: {
@@ -427,10 +514,6 @@ function importProject() {
   );
 }
 
-function addEditor() {
-  return runAction(t("status.editorRegistered"), () => invoke<HubState>("add_editor", { request: newEditor }));
-}
-
 function downloadEditor(release: GodotRelease, asset: GodotReleaseAsset) {
   const key = assetKey(release, asset);
   downloadTarget.value = key;
@@ -439,6 +522,7 @@ function downloadEditor(release: GodotRelease, asset: GodotReleaseAsset) {
     const nextState = await invoke<HubState>("download_godot_editor", {
       request: {
         releaseTag: release.tagName,
+        releaseRepository: release.sourceRepository,
         assetName: asset.name,
         assetUrl: asset.browserDownloadUrl,
         installPath: settingsForm.defaultInstallPath,
@@ -453,13 +537,16 @@ function downloadEditor(release: GodotRelease, asset: GodotReleaseAsset) {
 }
 
 async function saveSettings() {
-  const previousRepository = state.settings.releaseRepository;
+  const previousRepositories = state.settings.releaseRepositories.join("\n");
+  const previousGithubToken = state.settings.githubToken;
 
   await runAction(t("status.pathsSaved"), () => invoke<HubState>("save_settings", { request: settingsForm }));
 
-  if (previousRepository !== state.settings.releaseRepository) {
+  if (previousRepositories !== state.settings.releaseRepositories.join("\n") || previousGithubToken !== state.settings.githubToken) {
     releasesLoaded.value = false;
     releases.value = [];
+    releasePage.value = 1;
+    hasMoreReleases.value = true;
     await loadReleases();
   }
 }
@@ -478,12 +565,6 @@ function setPathValue(target: PathTarget, value: string) {
     },
     importProjectPath: () => {
       importProjectForm.path = path;
-    },
-    newEditorExecutable: () => {
-      newEditor.executablePath = path;
-    },
-    newEditorInstall: () => {
-      newEditor.installPath = path;
     },
     settingsInstall: () => {
       settingsForm.defaultInstallPath = path;
@@ -520,6 +601,10 @@ function executeRemoveProject(projectId: string) {
 
 function moveProject() {
   if (!activeProject.value) return;
+  if (!state.editors.length) {
+    error.value = t("projects.editorRequired");
+    return;
+  }
 
   return runAction(t("status.projectMoved"), () =>
     invoke<HubState>("move_project", {
@@ -590,12 +675,6 @@ function handleMenuAction(action: string) {
     return;
   }
 
-  if (action === "refresh-releases") {
-    navigateSection("editors");
-    loadReleases();
-    return;
-  }
-
   if (action === "security-policy") {
     securityDialogOpen.value = true;
   }
@@ -646,35 +725,71 @@ function releaseFlavorLabel(flavor: ReleaseFlavor) {
   return flavor === "dotnet" ? ".NET / Mono" : "Standard";
 }
 
-function compatibleAssets(release: GodotRelease, flavor: ReleaseFlavor) {
+function releaseChannelLabel(channel: (typeof releaseChannelFilters)[number]) {
+  if (channel === "stable") return t("releases.stable");
+  if (channel === "preview") return t("releases.preview");
+  return t("releases.allChannels");
+}
+
+function releaseVariantLabel(variant: (typeof releaseVariantFilters)[number]) {
+  if (variant === "standard") return "Standard";
+  if (variant === "dotnet") return ".NET / Mono";
+  return t("releases.allVariants");
+}
+
+function normalizedPlatform(platform: string): (typeof releasePlatformFilters)[number] {
+  if (platform === "win" || platform === "macos") return platform;
+  return "linux";
+}
+
+function normalizedArch(arch: string): (typeof releaseArchFilters)[number] {
+  if (arch === "aarch64" || arch === "arm64") return "arm64";
+  return "x86_64";
+}
+
+function releasePlatformLabel(platform: (typeof releasePlatformFilters)[number]) {
+  if (platform === "win") return "Windows";
+  if (platform === "macos") return "macOS";
+  return "Linux";
+}
+
+function releaseArchLabel(arch: (typeof releaseArchFilters)[number]) {
+  return arch === "arm64" ? "ARM64" : "x86_64";
+}
+
+function assetFlavor(assetName: string): ReleaseFlavor {
+  return assetName.toLowerCase().includes("mono") ? "dotnet" : "standard";
+}
+
+function compatibleAssets(release: GodotRelease) {
   return release.assets
     .filter((asset) => {
       const name = asset.name.toLowerCase();
       const isZip = name.endsWith(".zip");
       const isEditor = !name.includes("export_templates") && !name.includes("debug_symbols");
-      const isFlavor = flavor === "dotnet" ? name.includes("mono") : !name.includes("mono");
+      const isFlavor = releaseVariantFilter.value === "all" || assetFlavor(name) === releaseVariantFilter.value;
       return isZip && isEditor && isFlavor && matchesCurrentSystem(name);
     })
-    .slice(0, 4);
+    .slice(0, 8);
 }
 
 function matchesCurrentSystem(assetName: string) {
   const name = assetName.toLowerCase();
-  const platform = systemProfile.godotPlatform;
+  const platform = releasePlatformFilter.value;
 
   const platformMatches =
     (platform === "linux" && name.includes("linux")) ||
     (platform === "win" && (name.includes("win64") || name.includes("win32") || name.includes("windows"))) ||
-    (platform === "macos" && (name.includes("macos") || name.includes("osx"))) ||
-    (platform === "android" && name.includes("android"));
+    (platform === "macos" && (name.includes("macos") || name.includes("osx")));
 
   if (!platformMatches) return false;
 
-  if (systemProfile.arch === "x86_64" || systemProfile.arch === "amd64") {
-    return name.includes("64") || name.includes("x86_64") || platform === "macos";
+  if (releaseArchFilter.value === "x86_64") {
+    const isArmBuild = name.includes("arm64") || name.includes("aarch64");
+    return !isArmBuild && (name.includes("64") || name.includes("x86_64") || platform === "macos");
   }
 
-  if (systemProfile.arch === "aarch64" || systemProfile.arch === "arm64") {
+  if (releaseArchFilter.value === "arm64") {
     return name.includes("arm64") || name.includes("aarch64") || platform === "macos";
   }
 
@@ -682,7 +797,7 @@ function matchesCurrentSystem(assetName: string) {
 }
 
 function assetKey(release: GodotRelease, asset: GodotReleaseAsset) {
-  return `${release.id}:${asset.id}`;
+  return `${release.sourceRepository}:${release.id}:${asset.id}`;
 }
 
 function isAssetInstalling(release: GodotRelease, asset: GodotReleaseAsset) {
@@ -712,16 +827,6 @@ function assetPlatform(name: string) {
   return "Build";
 }
 
-function sectionDescription(section: Section) {
-  const descriptions: Record<Section, string> = {
-    projects: t("sections.projectsDescription"),
-    editors: t("sections.editorsDescription"),
-    settings: t("sections.settingsDescription"),
-  };
-
-  return descriptions[section];
-}
-
 function sectionTitle(section: Section) {
   const titles: Record<Section, string> = {
     projects: t("sections.projectsTitle"),
@@ -743,6 +848,25 @@ function gitStatusLabel(status?: GitStatus | null, loading = false) {
   if (!status.isRepo) return t("git.notInitialized");
   if (status.changedFiles || status.untrackedFiles) return t("common.changes");
   return t("git.clean");
+}
+
+function completeWelcome(section: Section = "projects") {
+  showWelcome.value = false;
+  localStorage.setItem(onboardingStorageKey, "true");
+  navigateSection(section);
+}
+
+function nextWelcomeSlide() {
+  if (welcomeSlide.value >= welcomeSlides.value.length - 1) {
+    completeWelcome("projects");
+    return;
+  }
+
+  welcomeSlide.value += 1;
+}
+
+function previousWelcomeSlide() {
+  welcomeSlide.value = Math.max(0, welcomeSlide.value - 1);
 }
 
 function clearToastTimer() {
@@ -779,7 +903,7 @@ onMounted(async () => {
   } catch {
     unlistenMenuAction = null;
   }
-  await loadSystemProfile();
+  await Promise.all([loadSystemProfile(), loadAppMetadata()]);
   await Promise.all([loadState(), loadReleases()]);
 });
 
@@ -791,71 +915,56 @@ onUnmounted(() => {
 
 <template>
   <main class="min-h-screen bg-base-200 text-base-content">
-    <div class="grid min-h-screen lg:grid-cols-[248px_minmax(0,1fr)]">
-      <aside class="sticky top-0 hidden h-screen overflow-y-auto border-r border-base-content/10 bg-base-300 lg:flex lg:flex-col">
-        <div class="border-b border-base-content/10 p-5">
-          <div class="flex items-center gap-3">
-            <BrandMark :logo="appLogo" />
-            <div>
-              <strong class="block text-sm">Godot Forge</strong>
-              <span class="text-xs text-base-content/50">Engine & Project Hub</span>
-            </div>
-          </div>
-        </div>
+    <WelcomeScreen
+      v-if="showWelcome"
+      v-model:slide="welcomeSlide"
+      v-model:selected-locale="selectedLocale"
+      :logo="appLogo"
+      :slides="welcomeSlides"
+      @previous="previousWelcomeSlide"
+      @next="nextWelcomeSlide"
+      @complete="completeWelcome"
+    />
 
-        <nav class="flex-1 p-3">
-          <p class="px-3 pb-2 text-[11px] font-bold uppercase text-base-content/50">{{ t("nav.library") }}</p>
-          <button
-            v-for="section in sections"
-            :key="section"
-            class="mb-1 flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm font-semibold text-base-content/65 transition hover:bg-base-content/5 hover:text-base-content"
-            :class="{ 'bg-primary/15 text-primary ring-1 ring-primary/20': activeSection === section }"
-            @click="navigateSection(section)"
-          >
-            <span>{{ t(`nav.${section}`) }}</span>
-            <span v-if="section === 'projects'" class="rounded bg-base-content/10 px-1.5 text-[11px]">{{ state.projects.length }}</span>
-            <span v-if="section === 'editors'" class="rounded bg-base-content/10 px-1.5 text-[11px]">{{ state.editors.length }}</span>
-          </button>
-        </nav>
+    <div v-else class="grid min-h-screen lg:grid-cols-[248px_minmax(0,1fr)]">
+      <AppSidebar
+        :logo="appLogo"
+        :sections="sections"
+        :active-section="activeSection"
+        :project-count="state.projects.length"
+        :editor-count="state.editors.length"
+        :app-version="appVersion"
+        @navigate="navigateSection"
+      />
 
-        <div class="border-t border-base-content/10 p-4">
-          <div class="rounded-lg border border-base-content/10 bg-base-300/60 p-3">
-            <p class="text-[11px] font-bold uppercase text-base-content/50">{{ t("common.defaultEditor") }}</p>
-            <strong class="mt-1 block truncate text-sm">
-              {{ defaultEditor ? `${defaultEditor.name} ${defaultEditor.version}` : t("common.noEditor") }}
-            </strong>
-            <p class="mt-1 truncate text-xs text-base-content/50">{{ defaultEditor?.executablePath || t("common.configureInstallation") }}</p>
-          </div>
-        </div>
-      </aside>
-
-      <section class="min-w-0">
+      <section class="min-w-0 overflow-x-hidden">
         <header class="sticky top-0 z-20 border-b border-base-content/10 bg-base-200/95 backdrop-blur">
-          <div class="flex min-h-16 items-center gap-4 px-4 lg:px-8">
+          <div class="flex min-h-16 items-center gap-3 px-4 lg:px-8">
             <BrandMark :logo="appLogo" size="sm" class="lg:hidden" />
-            <div class="lg:hidden">
-              <select v-model="activeSection" class="select select-bordered select-sm bg-base-100">
-                <option v-for="section in sections" :key="section" :value="section">{{ t(`nav.${section}`) }}</option>
-              </select>
-            </div>
             <div class="min-w-0 flex-1">
               <p class="text-[11px] font-black uppercase text-primary">Godot Forge / {{ t(`nav.${activeSection}`) }}</p>
               <h1 class="truncate text-lg font-black">{{ sectionTitle(activeSection) }}</h1>
             </div>
-            <select v-model="selectedLocale" class="select select-bordered select-sm border-base-content/10 bg-base-100">
-              <option value="en">English</option>
-              <option value="pt">Português</option>
-            </select>
-            <button class="btn btn-sm border-base-content/10 bg-base-content/5 text-base-content/90 hover:bg-base-content/10" @click="navigateSection('editors')">
-              {{ t("common.installEditor") }}
-            </button>
-            <button class="btn btn-sm btn-primary" :disabled="!activeProject || !!busyAction" @click="launchProject(activeProject!.id)">
-              {{ t("common.launch") }}
-            </button>
+            <div class="hidden items-center gap-2 lg:flex">
+              <span class="rounded bg-base-content/5 px-2 py-1 text-xs font-bold text-base-content/50">{{ state.projects.length }} {{ t("nav.projects") }}</span>
+              <span class="rounded bg-base-content/5 px-2 py-1 text-xs font-bold text-base-content/50">{{ state.editors.length }} {{ t("nav.editors") }}</span>
+            </div>
           </div>
+          <nav class="flex gap-2 overflow-x-auto border-t border-base-content/10 px-4 py-2 lg:hidden">
+            <button
+              v-for="section in sections"
+              :key="section"
+              class="shrink-0 rounded-md px-3 py-2 text-xs font-black uppercase transition"
+              :class="activeSection === section ? 'bg-primary text-primary-content' : 'bg-base-content/5 text-base-content/65'"
+              type="button"
+              @click="navigateSection(section)"
+            >
+              {{ t(`nav.${section}`) }}
+            </button>
+          </nav>
         </header>
 
-        <div class="mx-auto grid max-w-[1500px] gap-6 p-4 lg:p-8">
+        <div class="mx-auto grid w-full max-w-[1500px] gap-5 p-3 sm:p-4 lg:gap-6 lg:p-8">
           <div v-if="loading" class="grid gap-4">
             <div class="h-64 animate-pulse rounded-xl bg-base-content/5" />
             <div class="h-40 animate-pulse rounded-xl bg-base-content/5" />
@@ -870,7 +979,7 @@ onUnmounted(() => {
                   </button>
                   <div class="max-w-4xl">
                     <p class="text-xs font-black uppercase tracking-wide text-primary">{{ t("projectPage.pageLabel") }}</p>
-                    <h2 class="mt-2 text-5xl font-black leading-none tracking-tight">{{ activeProject.name }}</h2>
+                    <h2 class="mt-2 break-words text-4xl font-black leading-none tracking-tight sm:text-5xl">{{ activeProject.name }}</h2>
                     <p class="mt-3 break-all text-sm text-base-content/65">{{ activeProject.path }}</p>
                     <div class="mt-5 flex flex-wrap gap-2">
                       <span class="rounded bg-base-content/10 px-3 py-1 text-xs font-black text-base-content/90">{{ projectEditor?.version ?? t("common.noEditor") }}</span>
@@ -899,13 +1008,14 @@ onUnmounted(() => {
                     <button
                       class="rounded-md px-3 py-2 text-xs font-black uppercase transition"
                       :class="projectDetailTab === 'settings' ? 'bg-primary text-primary-content' : 'bg-base-content/5 text-base-content/65 hover:bg-base-content/10 hover:text-base-content'"
+                      :disabled="!state.editors.length"
                       @click="projectDetailTab = 'settings'; moveDestinationPath = activeProject.path"
                     >
                       {{ t("common.settings") }}
                     </button>
                   </div>
                   <div class="flex flex-wrap gap-2">
-                    <button class="btn btn-sm btn-primary" :disabled="!!busyAction" @click="launchProject(activeProject.id)">{{ t("common.launchProject") }}</button>
+                    <button class="btn btn-sm btn-primary" :disabled="!!busyAction || !state.editors.length" @click="launchProject(activeProject.id)">{{ t("common.launchProject") }}</button>
                     <button class="btn btn-sm border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :disabled="!!busyAction" @click="toggleFavorite(activeProject.id)">
                       {{ activeProject.favorite ? t("common.removeFavorite") : t("common.favorite") }}
                     </button>
@@ -935,11 +1045,11 @@ onUnmounted(() => {
                 <aside class="rounded-xl border border-base-content/10 bg-base-100 p-5">
                   <p class="text-xs font-black uppercase text-primary">{{ t("projectPage.quickActions") }}</p>
                   <div class="mt-4 grid gap-2">
-                    <button class="btn btn-primary" :disabled="!!busyAction" @click="launchProject(activeProject.id)">{{ t("common.openInEditor") }}</button>
+                    <button class="btn btn-primary" :disabled="!!busyAction || !state.editors.length" @click="launchProject(activeProject.id)">{{ t("common.openInEditor") }}</button>
                     <button class="btn border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" @click="projectDetailTab = 'git'; remoteUrl = gitStatus?.remote || ''; loadGitStatus(activeProject.id); loadGitLog(activeProject.id); loadGitBranches(activeProject.id)">
                       {{ t("projectPage.gitManage") }}
                     </button>
-                    <button class="btn border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" @click="projectDetailTab = 'settings'; moveDestinationPath = activeProject.path">
+                    <button class="btn border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :disabled="!state.editors.length" @click="projectDetailTab = 'settings'; moveDestinationPath = activeProject.path">
                       {{ t("common.configureProject") }}
                     </button>
                   </div>
@@ -1062,6 +1172,9 @@ onUnmounted(() => {
                 <form class="rounded-xl border border-base-content/10 bg-base-100 p-5" @submit.prevent="moveProject">
                   <p class="text-xs font-black uppercase text-primary">Project</p>
                   <h3 class="mt-1 text-2xl font-black">{{ t("projectPage.projectSettings") }}</h3>
+                  <p v-if="!state.editors.length" class="mt-2 rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-base-content/70">
+                    {{ t("projects.editorRequired") }}
+                  </p>
                   <div class="mt-5 grid gap-4">
                     <label class="grid gap-2">
                       <span class="text-sm font-bold text-base-content/80">{{ t("projectPage.pathCurrent") }}</span>
@@ -1072,11 +1185,12 @@ onUnmounted(() => {
                       <PathField
                         v-model="moveDestinationPath"
                         required
+                        :disabled="!state.editors.length"
                         :button-label="t('common.browse')"
                         @browse="browsePath('moveProjectDestination')"
                       />
                     </label>
-                    <button class="btn btn-primary w-fit" :disabled="!!busyAction || moveDestinationPath === activeProject.path">
+                    <button class="btn btn-primary w-fit" :disabled="!!busyAction || !state.editors.length || moveDestinationPath === activeProject.path">
                       {{ t("projectPage.moveProject") }}
                     </button>
                   </div>
@@ -1093,66 +1207,6 @@ onUnmounted(() => {
             </section>
 
             <template v-else>
-            <section class="overflow-hidden rounded-xl border border-base-content/10 bg-base-100">
-              <div class="flex flex-col gap-5 border-l-4 border-primary p-5 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <p class="text-[11px] font-black uppercase tracking-wide text-primary">{{ t("nav.currentScreen") }}</p>
-                  <h2 class="mt-1 text-3xl font-black tracking-tight lg:text-4xl">{{ sectionTitle(activeSection) }}</h2>
-                  <p class="mt-2 max-w-2xl text-sm text-base-content/65">{{ sectionDescription(activeSection) }}</p>
-                </div>
-                <div class="flex flex-wrap gap-2">
-                  <button
-                    v-for="section in sections"
-                    :key="section"
-                    class="rounded-md px-3 py-2 text-xs font-black uppercase transition"
-                    :class="activeSection === section ? 'bg-primary text-primary-content shadow-lg shadow-primary/20' : 'bg-base-content/5 text-base-content/65 hover:bg-base-content/10 hover:text-base-content'"
-                    @click="navigateSection(section)"
-                  >
-                    {{ t(`nav.${section}`) }}
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            <section
-              v-if="hasOnboarding && !((activeSection === 'projects' && !state.projects.length) || (activeSection === 'editors' && !state.editors.length))"
-              class="overflow-hidden rounded-xl border border-base-content/10 bg-[linear-gradient(135deg,var(--color-base-100)_0%,var(--color-base-200)_55%,var(--color-base-300)_100%)] shadow-2xl"
-            >
-              <div class="grid gap-8 p-6 lg:grid-cols-[1fr_420px] lg:p-8">
-                <div class="flex min-h-72 flex-col justify-end">
-                  <span class="mb-4 w-fit rounded bg-primary/15 px-3 py-1 text-xs font-black uppercase text-primary ring-1 ring-primary/20">
-                    {{ t("onboarding.setupRequired") }}
-                  </span>
-                  <h2 class="max-w-4xl text-4xl font-black leading-none tracking-tight lg:text-6xl">
-                    {{ t("onboarding.title") }}
-                  </h2>
-                  <p class="mt-4 max-w-2xl text-sm leading-6 text-base-content/65 lg:text-base">
-                    {{ t("onboarding.body") }}
-                  </p>
-                  <div class="mt-6 flex flex-wrap gap-3">
-                    <button class="btn btn-primary" @click="navigateSection('editors')">{{ t("onboarding.download") }}</button>
-                    <button class="btn border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" @click="navigateSection('editors')">
-                      {{ t("onboarding.register") }}
-                    </button>
-                    <button class="btn btn-ghost text-base-content/65" @click="dismissWelcome = true">Skip</button>
-                  </div>
-                </div>
-
-                <div class="grid content-end gap-3">
-                  <div class="rounded-lg border border-base-content/10 bg-base-300/70 p-4">
-                    <p class="text-xs font-black uppercase text-primary">01 Engine install</p>
-                    <h3 class="mt-2 font-bold">{{ t("onboarding.engineInstallTitle") }}</h3>
-                    <p class="mt-1 text-sm text-base-content/50">{{ t("onboarding.engineInstallBody") }}</p>
-                  </div>
-                  <div class="rounded-lg border border-base-content/10 bg-base-300/70 p-4">
-                    <p class="text-xs font-black uppercase text-warning">02 Project library</p>
-                    <h3 class="mt-2 font-bold">{{ t("onboarding.projectLibraryTitle") }}</h3>
-                    <p class="mt-1 text-sm text-base-content/50">{{ t("onboarding.projectLibraryBody") }}</p>
-                  </div>
-                </div>
-              </div>
-            </section>
-
             <section v-if="activeSection === 'projects' && state.projects.length" class="grid gap-3 md:grid-cols-3">
               <div class="rounded-lg border border-base-content/10 bg-base-100 p-4">
                 <p class="text-xs font-bold uppercase text-base-content/50">{{ t("nav.projects") }}</p>
@@ -1193,6 +1247,19 @@ onUnmounted(() => {
                   />
                 </div>
 
+                <div v-if="!state.editors.length" class="rounded-xl border border-primary/25 bg-primary/10 p-4">
+                  <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div class="min-w-0">
+                      <p class="text-xs font-black uppercase text-primary">{{ t("common.noEngineInstalled") }}</p>
+                      <h3 class="mt-1 text-xl font-black">{{ t("projects.noEditorCtaTitle") }}</h3>
+                      <p class="mt-1 text-sm text-base-content/65">{{ t("projects.noEditorCtaBody") }}</p>
+                    </div>
+                    <button class="btn btn-primary shrink-0" type="button" @click="navigateSection('editors')">
+                      {{ t("projects.goInstallEditor") }}
+                    </button>
+                  </div>
+                </div>
+
                 <div v-if="state.projects.length && sortedProjects.length" class="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
                   <article
                     v-for="project in sortedProjects"
@@ -1220,7 +1287,7 @@ onUnmounted(() => {
                         <span class="rounded px-2 py-1 text-[11px] font-black uppercase" :class="projectGitStatuses[project.id]?.isRepo ? 'bg-success/15 text-success' : 'bg-base-content/5 text-base-content/50'">
                           Git: {{ gitStatusLabel(projectGitStatuses[project.id]) }}
                         </span>
-                        <button class="btn btn-primary btn-xs" :disabled="!!busyAction" @click.stop="launchProject(project.id)">
+                        <button class="btn btn-primary btn-xs" :disabled="!!busyAction || !state.editors.length" @click.stop="launchProject(project.id)">
                           Launch
                         </button>
                       </div>
@@ -1239,7 +1306,7 @@ onUnmounted(() => {
                       <h3 class="font-black">{{ t("projects.newProject") }}</h3>
                       <span class="text-xs text-base-content/50">{{ t("common.create") }}</span>
                     </div>
-                    <div class="grid gap-3">
+                    <fieldset class="grid gap-3" :disabled="!state.editors.length">
                       <input v-model="newProject.name" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('projects.projectName')" />
                       <PathField
                         v-model="newProject.rootPath"
@@ -1248,14 +1315,14 @@ onUnmounted(() => {
                         :button-label="t('common.browse')"
                         @browse="browsePath('newProjectRoot')"
                       />
-                      <select v-model="newProject.editorId" class="select select-bordered border-base-content/10 bg-base-200">
-                        <option value="">{{ t("projects.useDefaultEditor") }}</option>
+                      <select v-model="newProject.editorId" class="select cursor-pointer select-bordered border-base-content/10 bg-base-200 disabled:cursor-not-allowed disabled:opacity-60" :disabled="!state.editors.length">
+                        <option value="">{{ state.editors.length ? t("projects.useDefaultEditor") : t("projects.noEditorSelect") }}</option>
                         <option v-for="editor in state.editors" :key="editor.id" :value="editor.id">
                           {{ editor.name }} {{ editor.version }}
                         </option>
                       </select>
-                      <button class="btn btn-primary" :disabled="!!busyAction">{{ t("projects.createProject") }}</button>
-                    </div>
+                      <button class="btn btn-primary" :disabled="!!busyAction || !state.editors.length">{{ t("projects.createProject") }}</button>
+                    </fieldset>
                   </form>
 
                   <form class="rounded-lg border border-base-content/10 bg-base-100 p-4" @submit.prevent="importProject">
@@ -1263,7 +1330,7 @@ onUnmounted(() => {
                       <h3 class="font-black">{{ t("projects.importProject") }}</h3>
                       <span class="text-xs text-base-content/50">{{ t("common.import") }}</span>
                     </div>
-                    <div class="grid gap-3">
+                    <fieldset class="grid gap-3" :disabled="!state.editors.length">
                       <input v-model="importProjectForm.name" class="input input-bordered border-base-content/10 bg-base-200" :placeholder="t('projects.optionalName')" />
                       <PathField
                         v-model="importProjectForm.path"
@@ -1272,14 +1339,14 @@ onUnmounted(() => {
                         :button-label="t('common.browse')"
                         @browse="browsePath('importProjectPath')"
                       />
-                      <select v-model="importProjectForm.editorId" class="select select-bordered border-base-content/10 bg-base-200">
-                        <option value="">{{ t("projects.useDefaultEditor") }}</option>
+                      <select v-model="importProjectForm.editorId" class="select cursor-pointer select-bordered border-base-content/10 bg-base-200 disabled:cursor-not-allowed disabled:opacity-60" :disabled="!state.editors.length">
+                        <option value="">{{ state.editors.length ? t("projects.useDefaultEditor") : t("projects.noEditorSelect") }}</option>
                         <option v-for="editor in state.editors" :key="editor.id" :value="editor.id">
                           {{ editor.name }} {{ editor.version }}
                         </option>
                       </select>
-                      <button class="btn border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :disabled="!!busyAction">{{ t("common.import") }}</button>
-                    </div>
+                      <button class="btn border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :disabled="!!busyAction || !state.editors.length">{{ t("common.import") }}</button>
+                    </fieldset>
                   </form>
                 </div>
               </div>
@@ -1351,176 +1418,54 @@ onUnmounted(() => {
               </aside>
             </section>
 
-            <section v-if="activeSection === 'editors'" class="grid gap-6">
-              <div class="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-                <article
-                  v-for="editor in state.editors"
-                  :key="editor.id"
-                  class="rounded-xl border border-base-content/10 bg-base-100 p-5"
-                >
-                  <div class="flex items-start justify-between gap-4">
-                    <div class="min-w-0">
-                      <p class="text-xs font-black uppercase text-primary">Installed Engine</p>
-                      <h3 class="mt-2 truncate text-2xl font-black">{{ editor.name }}</h3>
-                      <p class="font-bold text-base-content/80">{{ editor.version }}</p>
-                    </div>
-                    <span class="rounded px-2 py-1 text-xs font-black" :class="editor.isDefault ? 'bg-primary text-primary-content' : 'bg-base-content/10 text-base-content/80'">
-                      {{ editor.isDefault ? "DEFAULT" : editor.architecture }}
-                    </span>
-                  </div>
-                  <div class="mt-5 grid gap-2 rounded-lg bg-base-300/60 p-3 text-xs text-base-content/50">
-                    <p class="truncate">{{ editor.executablePath }}</p>
-                    <p class="truncate">{{ editor.installPath }}</p>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-2">
-                    <button class="btn btn-sm border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :disabled="editor.isDefault || !!busyAction" @click="setDefaultEditor(editor.id)">
-                      {{ t("common.makeDefault") }}
-                    </button>
-                    <button class="btn btn-sm btn-error btn-outline" :disabled="!!busyAction" @click="requestRemoveEditor(editor.id)">{{ t("common.remove") }}</button>
-                  </div>
-                </article>
-
-              </div>
-
-              <form class="rounded-xl border border-base-content/10 bg-base-100 p-5" @submit.prevent="addEditor">
-                <div class="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                  <div>
-                    <p class="text-xs font-black uppercase text-primary">{{ t("editors.manualSetup") }}</p>
-                    <h2 class="text-2xl font-black">{{ t("editors.localInstall") }}</h2>
-                  </div>
-                  <button class="btn btn-primary" :disabled="!!busyAction">{{ t("editors.registerEditor") }}</button>
-                </div>
-                <div class="grid gap-3 lg:grid-cols-2">
-                  <input v-model="newEditor.name" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('common.name')" />
-                  <input v-model="newEditor.version" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('editors.version')" />
-                  <PathField
-                    v-model="newEditor.executablePath"
-                    class="lg:col-span-2"
-                    required
-                    :placeholder="t('editors.executablePath')"
-                    :button-label="t('common.browse')"
-                    @browse="browsePath('newEditorExecutable', false)"
-                  />
-                  <PathField
-                    v-model="newEditor.installPath"
-                    required
-                    :placeholder="t('editors.installFolder')"
-                    :button-label="t('common.browse')"
-                    @browse="browsePath('newEditorInstall')"
-                  />
-                  <input v-model="newEditor.architecture" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('editors.architecture')" />
-                </div>
-                <label class="mt-4 flex w-fit cursor-pointer items-center gap-3 text-sm font-bold text-base-content/80">
-                  <input v-model="newEditor.makeDefault" type="checkbox" class="checkbox checkbox-primary" />
-                  {{ t("editors.setDefault") }}
-                </label>
-              </form>
-            </section>
-
-            <section v-if="activeSection === 'editors'" class="grid gap-4">
-              <div class="rounded-xl border border-base-content/10 bg-base-100 p-5">
-                <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                  <div>
-                    <p class="text-xs font-black uppercase text-primary">{{ t("releases.officialGithub") }}</p>
-                    <h2 class="text-2xl font-black">{{ t("releases.title") }}</h2>
-                    <p class="mt-1 text-sm text-base-content/50">
-                      {{ t("releases.showingBuilds", { os: systemProfile.os, arch: systemProfile.arch }) }}
-                    </p>
-                    <p class="mt-1 text-xs font-bold text-base-content/40">
-                      {{ t("releases.sourceRepository") }}: {{ state.settings.releaseRepository }}
-                    </p>
-                  </div>
-                  <div class="flex flex-col gap-2 lg:items-end">
-                    <div class="flex flex-col gap-2 sm:flex-row">
-                    <input v-model="releaseQuery" class="input input-bordered border-base-content/10 bg-base-200" :placeholder="t('releases.filterPlaceholder')" />
-                    <button class="btn btn-primary" :disabled="busyAction === t('status.fetchingReleases')" @click="loadReleases">
-                      <span v-if="busyAction === t('status.fetchingReleases')" class="loading loading-spinner loading-xs" />
-                      {{ t("common.refresh") }}
-                    </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="!releasesLoaded" class="rounded-xl border border-dashed border-base-content/15 bg-base-100 p-10 text-center">
-                <span class="loading loading-spinner loading-md text-primary" />
-                <h3 class="mt-4 text-2xl font-black">{{ t("releases.loadingTitle") }}</h3>
-                <p class="mt-2 text-base-content/50">{{ t("releases.fetchOfficial") }}</p>
-              </div>
-
-              <article
-                v-for="release in filteredReleases"
-                :key="release.id"
-                class="rounded-xl border border-base-content/10 bg-base-100 p-5"
-              >
-                <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
-                    <div class="flex flex-wrap items-center gap-2">
-                      <h3 class="text-2xl font-black">{{ release.tagName }}</h3>
-                      <span class="rounded px-2 py-1 text-xs font-black" :class="release.prerelease ? 'bg-warning text-warning-content' : 'bg-success text-success-content'">
-                        {{ release.prerelease ? "PREVIEW" : "STABLE" }}
-                      </span>
-                    </div>
-                    <p class="mt-1 text-sm text-base-content/50">{{ release.name || "Godot release" }} - {{ releaseDate(release.publishedAt) }}</p>
-                  </div>
-                  <a class="btn btn-sm border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :href="release.htmlUrl" target="_blank">
-                    GitHub
-                  </a>
-                </div>
-
-                <div class="mt-5 grid gap-3 xl:grid-cols-2">
-                  <section
-                    v-for="flavor in releaseFlavors"
-                    :key="flavor"
-                    class="rounded-lg border border-base-content/10 bg-base-300/60 p-4"
-                  >
-                    <div class="flex items-center justify-between gap-3">
-                      <div>
-                        <p class="text-sm font-black">{{ releaseFlavorLabel(flavor) }}</p>
-                        <p class="mt-1 text-xs text-base-content/50">{{ t("releases.compatibleVariant") }}</p>
-                      </div>
-                      <span class="rounded bg-primary/15 px-2 py-1 text-xs font-black text-primary">
-                        {{ compatibleAssets(release, flavor).length }}
-                      </span>
-                    </div>
-
-                    <div v-if="compatibleAssets(release, flavor).length" class="mt-4 grid gap-3 md:grid-cols-2">
-                      <div
-                        v-for="asset in compatibleAssets(release, flavor)"
-                        :key="asset.id"
-                        class="grid gap-4 rounded-md border border-base-content/10 bg-base-100 p-4"
-                      >
-                        <div>
-                          <span class="rounded bg-primary/15 px-2 py-1 text-xs font-black text-primary">{{ assetPlatform(asset.name) }}</span>
-                          <p class="mt-3 min-h-12 break-all text-sm font-bold text-base-content/90">{{ asset.name }}</p>
-                          <p class="mt-2 text-xs text-base-content/50">{{ fileSize(asset.size) }}</p>
-                        </div>
-                        <button
-                          class="btn btn-sm"
-                          :class="isAssetInstalled(release, asset) ? 'btn-success' : 'btn-primary'"
-                          :disabled="!!busyAction || isAssetInstalled(release, asset)"
-                          @click="downloadEditor(release, asset)"
-                        >
-                          <span v-if="isAssetInstalling(release, asset)" class="loading loading-spinner loading-xs" />
-                          {{
-                            isAssetInstalling(release, asset)
-                              ? t("common.installing")
-                              : isAssetInstalled(release, asset)
-                                ? t("common.installed")
-                                : t("common.downloadAndInstall")
-                          }}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div v-else class="mt-4 rounded-md border border-dashed border-base-content/10 bg-base-100 p-4 text-sm text-base-content/50">
-                      {{ t("releases.noAsset") }} {{ releaseFlavorLabel(flavor) }} {{ t("releases.compatibleWith") }}
-                      {{ systemProfile.os }} / {{ systemProfile.arch }} {{ t("releases.noAssetSuffix") }}
-                    </div>
-                  </section>
-                </div>
-              </article>
-            </section>
+            <EditorsPage
+              v-if="activeSection === 'editors'"
+              :editors="state.editors"
+              :releases="releases"
+              :filtered-releases="filteredReleases"
+              :release-repository-options="releaseRepositoryOptions"
+              :release-source-count="releaseSourceCount"
+              :release-result-label="releaseResultLabel"
+              :releases-loaded="releasesLoaded"
+              :release-filters-open="releaseFiltersOpen"
+              :release-query="releaseQuery"
+              :release-repository-filter="releaseRepositoryFilter"
+              :release-channel-filter="releaseChannelFilter"
+              :release-variant-filter="releaseVariantFilter"
+              :release-platform-filter="releasePlatformFilter"
+              :release-arch-filter="releaseArchFilter"
+              :release-channel-filters="releaseChannelFilters"
+              :release-variant-filters="releaseVariantFilters"
+              :release-platform-filters="releasePlatformFilters"
+              :release-arch-filters="releaseArchFilters"
+              :busy-action="busyAction"
+              :fetching-releases-label="t('status.fetchingReleases')"
+              :has-more-releases="hasMoreReleases"
+              :release-date="releaseDate"
+              :release-flavor-label="releaseFlavorLabel"
+              :release-channel-label="releaseChannelLabel"
+              :release-variant-label="releaseVariantLabel"
+              :release-platform-label="releasePlatformLabel"
+              :release-arch-label="releaseArchLabel"
+              :compatible-assets="compatibleAssets"
+              :asset-platform="assetPlatform"
+              :asset-flavor="assetFlavor"
+              :file-size="fileSize"
+              :is-asset-installing="isAssetInstalling"
+              :is-asset-installed="isAssetInstalled"
+              @set-default-editor="setDefaultEditor"
+              @remove-editor="requestRemoveEditor"
+              @clear-release-filters="clearReleaseFilters"
+              @load-more-releases="loadMoreReleases"
+              @download-editor="downloadEditor"
+              @update:release-filters-open="releaseFiltersOpen = $event"
+              @update:release-query="releaseQuery = $event"
+              @update:release-repository-filter="releaseRepositoryFilter = $event"
+              @update:release-channel-filter="releaseChannelFilter = $event"
+              @update:release-variant-filter="releaseVariantFilter = $event"
+              @update:release-platform-filter="releasePlatformFilter = $event"
+              @update:release-arch-filter="releaseArchFilter = $event"
+            />
 
             <SettingsPage
               v-if="activeSection === 'settings'"
