@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "vue-i18n";
+import appLogo from "./assets/godot-forge-logo.png";
 
 type GodotEditor = {
   id: string;
@@ -676,8 +677,8 @@ onMounted(() => {
       <aside class="hidden border-r border-white/10 bg-[#15181e] lg:flex lg:flex-col">
         <div class="border-b border-white/10 p-5">
           <div class="flex items-center gap-3">
-            <div class="grid h-10 w-10 place-items-center rounded-md bg-sky-500 text-sm font-black text-white shadow-lg shadow-sky-950/50">
-              GF
+            <div class="grid h-10 w-10 place-items-center rounded-md bg-[#180f2d] shadow-lg shadow-fuchsia-950/40 ring-1 ring-white/10">
+              <img :src="appLogo" alt="Godot Forge" class="h-8 w-8 object-contain" />
             </div>
             <div>
               <strong class="block text-sm">Godot Forge</strong>
@@ -715,6 +716,9 @@ onMounted(() => {
       <section class="min-w-0">
         <header class="sticky top-0 z-20 border-b border-white/10 bg-[#101216]/95 backdrop-blur">
           <div class="flex min-h-16 items-center gap-4 px-4 lg:px-8">
+            <div class="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#180f2d] shadow-lg shadow-fuchsia-950/30 ring-1 ring-white/10 lg:hidden">
+              <img :src="appLogo" alt="Godot Forge" class="h-7 w-7 object-contain" />
+            </div>
             <div class="lg:hidden">
               <select v-model="activeSection" class="select select-bordered select-sm bg-[#191d24]">
                 <option v-for="section in sections" :key="section" :value="section">{{ t(`nav.${section}`) }}</option>
