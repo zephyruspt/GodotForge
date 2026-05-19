@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "vue-i18n";
 
@@ -86,7 +86,7 @@ const state = reactive<HubState>({
 });
 
 const { locale, t } = useI18n();
-const sections = ["projects", "editors", "releases", "paths"] as const;
+const sections = ["projects", "editors", "releases", "settings"] as const;
 const activeSection = ref<(typeof sections)[number]>("projects");
 const activeProjectId = ref("");
 const busyAction = ref("");
@@ -105,6 +105,7 @@ const selectedLocale = computed({
     locale.value = value;
   },
 });
+const selectedTheme = ref<"godotforge" | "godotforge-light">("godotforge");
 const downloadTarget = ref("");
 const installedAssetKeys = ref<string[]>([]);
 const gitStatus = ref<GitStatus | null>(null);
@@ -628,7 +629,7 @@ function sectionDescription(section: (typeof sections)[number]) {
     projects: t("sections.projectsDescription"),
     editors: t("sections.editorsDescription"),
     releases: t("sections.releasesDescription"),
-    paths: t("sections.pathsDescription"),
+    settings: t("sections.settingsDescription"),
   };
 
   return descriptions[section];
@@ -639,7 +640,7 @@ function sectionTitle(section: (typeof sections)[number]) {
     projects: t("sections.projectsTitle"),
     editors: t("sections.editorsTitle"),
     releases: t("sections.releasesTitle"),
-    paths: t("sections.pathsTitle"),
+    settings: t("sections.settingsTitle"),
   };
 
   return titles[section];
@@ -658,7 +659,12 @@ function gitStatusLabel(status?: GitStatus | null, loading = false) {
   return t("git.clean");
 }
 
+watch(selectedTheme, (theme) => {
+  document.documentElement.dataset.theme = theme;
+});
+
 onMounted(() => {
+  document.documentElement.dataset.theme = selectedTheme.value;
   loadSystemProfile();
   loadState();
 });
@@ -1363,16 +1369,16 @@ onMounted(() => {
               </article>
             </section>
 
-            <section v-if="activeSection === 'paths'" class="rounded-xl border border-white/10 bg-[#171b22] p-5">
-              <form class="grid gap-5" @submit.prevent="saveSettings">
+            <section v-if="activeSection === 'settings'" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <form class="rounded-xl border border-white/10 bg-[#171b22] p-5" @submit.prevent="saveSettings">
                 <div>
-                  <p class="text-xs font-black uppercase text-sky-400">{{ t("paths.workspaceSettings") }}</p>
-                  <h2 class="text-2xl font-black">{{ t("paths.defaultPaths") }}</h2>
-                  <p class="mt-1 text-sm text-slate-500">{{ t("paths.control") }}</p>
+                  <p class="text-xs font-black uppercase text-sky-400">{{ t("settings.workspaceSettings") }}</p>
+                  <h2 class="text-2xl font-black">{{ t("settings.defaultPaths") }}</h2>
+                  <p class="mt-1 text-sm text-slate-500">{{ t("settings.control") }}</p>
                 </div>
-                <div class="grid gap-4 lg:grid-cols-2">
+                <div class="mt-5 grid gap-4 lg:grid-cols-2">
                   <label class="grid gap-2">
-                    <span class="text-sm font-bold text-slate-300">{{ t("paths.installations") }}</span>
+                    <span class="text-sm font-bold text-slate-300">{{ t("settings.installations") }}</span>
                     <input v-model="settingsForm.defaultInstallPath" class="input input-bordered border-white/10 bg-[#101216]" required />
                   </label>
                   <label class="grid gap-2">
@@ -1384,6 +1390,27 @@ onMounted(() => {
                   <button class="btn btn-primary" :disabled="!!busyAction">{{ t("common.savePaths") }}</button>
                 </div>
               </form>
+
+              <aside class="rounded-xl border border-white/10 bg-[#171b22] p-5">
+                <p class="text-xs font-black uppercase text-sky-400">{{ t("settings.appearance") }}</p>
+                <h2 class="mt-1 text-2xl font-black">{{ t("settings.preferences") }}</h2>
+                <div class="mt-5 grid gap-4">
+                  <label class="grid gap-2">
+                    <span class="text-sm font-bold text-slate-300">{{ t("settings.language") }}</span>
+                    <select v-model="selectedLocale" class="select select-bordered border-white/10 bg-[#101216]">
+                      <option value="en">English</option>
+                      <option value="pt">Português</option>
+                    </select>
+                  </label>
+                  <label class="grid gap-2">
+                    <span class="text-sm font-bold text-slate-300">{{ t("settings.theme") }}</span>
+                    <select v-model="selectedTheme" class="select select-bordered border-white/10 bg-[#101216]">
+                      <option value="godotforge">{{ t("settings.darkTheme") }}</option>
+                      <option value="godotforge-light">{{ t("settings.lightTheme") }}</option>
+                    </select>
+                  </label>
+                </div>
+              </aside>
             </section>
             </template>
           </template>

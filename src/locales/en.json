@@ -52,19 +52,19 @@
     "currentScreen": "Current screen",
     "editors": "Editors",
     "library": "Library",
-    "paths": "Paths",
     "projects": "Projects",
-    "releases": "Releases"
+    "releases": "Releases",
+    "settings": "Settings"
   },
   "sections": {
     "editorsDescription": "Installed versions, paths, and default editor.",
     "editorsTitle": "Engine Installs",
-    "pathsDescription": "Directories used by the hub for installations and projects.",
-    "pathsTitle": "Workspace Settings",
     "projectsDescription": "Local library, project creation, and quick launch.",
     "projectsTitle": "Project Browser",
     "releasesDescription": "Official downloads from the Godot repository.",
-    "releasesTitle": "Release Manager"
+    "releasesTitle": "Release Manager",
+    "settingsDescription": "Directories used by the hub for installations and projects.",
+    "settingsTitle": "Workspace Settings"
   },
   "onboarding": {
     "body": "Install an official Godot version, set default paths, and keep local projects ready to open like Unity Hub, Epic Launcher, and Unreal Project Browser.",
@@ -159,12 +159,6 @@
     "showingBuilds": "Showing builds compatible with {os} / {arch}.",
     "title": "Install Godot versions"
   },
-  "paths": {
-    "control": "Control where Forge installs engines and creates projects.",
-    "defaultPaths": "Default paths",
-    "installations": "Godot installations",
-    "workspaceSettings": "Workspace settings"
-  },
   "status": {
     "defaultEditorUpdated": "Default editor updated",
     "editorInstalled": "Editor installed",
@@ -180,5 +174,17 @@
     "projectUpdated": "Project updated",
     "releasesLoaded": "Releases loaded",
     "savingRemote": "Saving remote"
+  },
+  "settings": {
+    "control": "Control where Forge installs engines and creates projects.",
+    "defaultPaths": "Default paths",
+    "installations": "Godot installations",
+    "workspaceSettings": "Workspace settings",
+    "appearance": "Appearance",
+    "darkTheme": "Dark",
+    "language": "Language",
+    "lightTheme": "Light",
+    "preferences": "Preferences",
+    "theme": "Theme"
   }
 }

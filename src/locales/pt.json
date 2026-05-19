@@ -52,19 +52,19 @@
     "currentScreen": "Tela atual",
     "editors": "Editores",
     "library": "Biblioteca",
-    "paths": "Paths",
     "projects": "Projetos",
-    "releases": "Releases"
+    "releases": "Releases",
+    "settings": "Configurações"
   },
   "sections": {
     "editorsDescription": "Versões instaladas, paths e editor padrão.",
     "editorsTitle": "Instalações da Engine",
-    "pathsDescription": "Diretórios usados pelo hub para instalações e projetos.",
-    "pathsTitle": "Configurações do Workspace",
     "projectsDescription": "Biblioteca local, criação de projetos e abertura rápida.",
     "projectsTitle": "Navegador de Projetos",
     "releasesDescription": "Downloads oficiais do repositório da Godot.",
-    "releasesTitle": "Gerenciador de Releases"
+    "releasesTitle": "Gerenciador de Releases",
+    "settingsDescription": "Diretórios usados pelo hub para instalações e projetos.",
+    "settingsTitle": "Configurações do Workspace"
   },
   "onboarding": {
     "body": "Instale uma versão oficial da Godot, defina paths padrão e mantenha projetos locais prontos para abrir como Unity Hub, Epic Launcher e Unreal Project Browser.",
@@ -159,12 +159,6 @@
     "showingBuilds": "Mostrando builds compatíveis com {os} / {arch}.",
     "title": "Instalar versões da Godot"
   },
-  "paths": {
-    "control": "Controle onde o Forge instala engines e cria projetos.",
-    "defaultPaths": "Paths padrão",
-    "installations": "Instalações da Godot",
-    "workspaceSettings": "Configurações do workspace"
-  },
   "status": {
     "defaultEditorUpdated": "Editor padrão atualizado",
     "editorInstalled": "Editor instalado",
@@ -180,5 +174,17 @@
     "projectUpdated": "Projeto atualizado",
     "releasesLoaded": "Releases carregadas",
     "savingRemote": "Salvando remote"
+  },
+  "settings": {
+    "control": "Controle onde o Forge instala engines e cria projetos.",
+    "defaultPaths": "Paths padrão",
+    "installations": "Instalações da Godot",
+    "workspaceSettings": "Configurações do workspace",
+    "appearance": "Aparência",
+    "darkTheme": "Escuro",
+    "language": "Idioma",
+    "lightTheme": "Claro",
+    "preferences": "Preferências",
+    "theme": "Tema"
   }
 }
