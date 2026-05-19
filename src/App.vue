@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { useI18n } from "vue-i18n";
 
 type GodotEditor = {
   id: string;
@@ -53,6 +54,28 @@ type SystemProfile = {
   godotPlatform: string;
 };
 
+type GitStatus = {
+  available: boolean;
+  isRepo: boolean;
+  branch?: string | null;
+  remote?: string | null;
+  changedFiles: number;
+  untrackedFiles: number;
+  summary: string;
+};
+
+type GitLogEntry = {
+  hash: string;
+  author: string;
+  relativeDate: string;
+  subject: string;
+};
+
+type GitBranch = {
+  name: string;
+  current: boolean;
+};
+
 const state = reactive<HubState>({
   editors: [],
   projects: [],
@@ -62,8 +85,9 @@ const state = reactive<HubState>({
   },
 });
 
-const sections = ["Projetos", "Editores", "Releases", "Paths"] as const;
-const activeSection = ref<(typeof sections)[number]>("Projetos");
+const { locale, t } = useI18n();
+const sections = ["projects", "editors", "releases", "paths"] as const;
+const activeSection = ref<(typeof sections)[number]>("projects");
 const activeProjectId = ref("");
 const busyAction = ref("");
 const error = ref("");
@@ -75,8 +99,25 @@ const releases = ref<GodotRelease[]>([]);
 const releasesLoaded = ref(false);
 const releaseQuery = ref("");
 const releaseFlavor = ref<"standard" | "dotnet">("standard");
+const selectedLocale = computed({
+  get: () => locale.value,
+  set: (value: string) => {
+    locale.value = value;
+  },
+});
 const downloadTarget = ref("");
 const installedAssetKeys = ref<string[]>([]);
+const gitStatus = ref<GitStatus | null>(null);
+const projectGitStatuses = ref<Record<string, GitStatus>>({});
+const gitLoading = ref(false);
+const projectPageOpen = ref(false);
+const projectDetailTab = ref<"overview" | "git" | "settings">("overview");
+const moveDestinationPath = ref("");
+const gitLog = ref<GitLogEntry[]>([]);
+const gitLogLoading = ref(false);
+const gitBranches = ref<GitBranch[]>([]);
+const branchName = ref("");
+const remoteUrl = ref("");
 const systemProfile = reactive<SystemProfile>({
   os: "unknown",
   arch: "unknown",
@@ -84,7 +125,7 @@ const systemProfile = reactive<SystemProfile>({
 });
 
 const newProject = reactive({
-  name: "Novo Jogo",
+  name: "New Game",
   rootPath: "",
   editorId: "",
 });
@@ -177,10 +218,190 @@ async function loadState() {
 
   try {
     applyState(await invoke<HubState>("load_hub_state"));
+    if (activeProjectId.value) {
+      await loadGitStatus(activeProjectId.value);
+    }
+    loadProjectGitStatuses();
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught);
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadProjectGitStatuses() {
+  const entries = await Promise.all(
+    state.projects.map(async (project) => {
+      try {
+        const status = await invoke<GitStatus>("get_project_git_status", { projectId: project.id });
+        return [project.id, status] as const;
+      } catch {
+        return [project.id, null] as const;
+      }
+    }),
+  );
+
+  projectGitStatuses.value = entries.reduce<Record<string, GitStatus>>((accumulator, [projectId, status]) => {
+    if (status) accumulator[projectId] = status;
+    return accumulator;
+  }, {});
+}
+
+async function loadGitStatus(projectId = activeProjectId.value) {
+  if (!projectId) {
+    gitStatus.value = null;
+    return;
+  }
+
+  gitLoading.value = true;
+
+  try {
+    gitStatus.value = await invoke<GitStatus>("get_project_git_status", { projectId });
+    projectGitStatuses.value = {
+      ...projectGitStatuses.value,
+      [projectId]: gitStatus.value,
+    };
+  } catch (caught) {
+    gitStatus.value = null;
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    gitLoading.value = false;
+  }
+}
+
+async function loadGitLog(projectId = activeProjectId.value) {
+  if (!projectId) {
+    gitLog.value = [];
+    return;
+  }
+
+  gitLogLoading.value = true;
+
+  try {
+    gitLog.value = await invoke<GitLogEntry[]>("get_project_git_log", { projectId });
+  } catch (caught) {
+    gitLog.value = [];
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    gitLogLoading.value = false;
+  }
+}
+
+async function loadGitBranches(projectId = activeProjectId.value) {
+  if (!projectId) {
+    gitBranches.value = [];
+    return;
+  }
+
+  try {
+    gitBranches.value = await invoke<GitBranch[]>("list_project_git_branches", { projectId });
+  } catch {
+    gitBranches.value = [];
+  }
+}
+
+async function initGit(projectId = activeProjectId.value) {
+  if (!projectId) return;
+
+  gitLoading.value = true;
+  busyAction.value = "Inicializando Git";
+  error.value = "";
+  status.value = "";
+
+  try {
+    gitStatus.value = await invoke<GitStatus>("init_project_git", { projectId });
+    projectGitStatuses.value = {
+      ...projectGitStatuses.value,
+      [projectId]: gitStatus.value,
+    };
+    status.value = t("git.initialized");
+    await loadGitBranches(projectId);
+    await loadGitLog(projectId);
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    busyAction.value = "";
+    gitLoading.value = false;
+  }
+}
+
+async function createGitBranch(projectId = activeProjectId.value) {
+  if (!projectId) return;
+
+  busyAction.value = t("git.creatingBranch");
+  error.value = "";
+  status.value = "";
+
+  try {
+    gitStatus.value = await invoke<GitStatus>("create_project_git_branch", {
+      request: { projectId, branchName: branchName.value },
+    });
+    status.value = t("git.branchCreated");
+    branchName.value = "";
+    await loadGitBranches(projectId);
+    await loadGitLog(projectId);
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    busyAction.value = "";
+  }
+}
+
+async function checkoutGitBranch(branch: string, projectId = activeProjectId.value) {
+  if (!projectId) return;
+
+  busyAction.value = t("git.switchingBranch");
+  error.value = "";
+  status.value = "";
+
+  try {
+    gitStatus.value = await invoke<GitStatus>("checkout_project_git_branch", {
+      request: { projectId, branchName: branch },
+    });
+    status.value = t("git.activeBranch", { branch });
+    await loadGitBranches(projectId);
+    await loadGitLog(projectId);
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    busyAction.value = "";
+  }
+}
+
+async function saveGitRemote(projectId = activeProjectId.value) {
+  if (!projectId) return;
+
+  busyAction.value = t("git.savingRemote");
+  error.value = "";
+  status.value = "";
+
+  try {
+    gitStatus.value = await invoke<GitStatus>("set_project_git_remote", {
+      request: { projectId, remoteUrl: remoteUrl.value },
+    });
+    status.value = t("git.remoteUpdated");
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    busyAction.value = "";
+  }
+}
+
+async function pushGitBranch(projectId = activeProjectId.value) {
+  if (!projectId) return;
+
+  busyAction.value = t("git.pushing");
+  error.value = "";
+  status.value = "";
+
+  try {
+    gitStatus.value = await invoke<GitStatus>("push_project_git_branch", { projectId });
+    status.value = t("git.pushCompleted");
+    await loadGitStatus(projectId);
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    busyAction.value = "";
   }
 }
 
@@ -196,13 +417,13 @@ async function loadSystemProfile() {
 }
 
 async function loadReleases() {
-  busyAction.value = "Buscando releases";
+  busyAction.value = t("status.fetchingReleases");
   error.value = "";
 
   try {
     releases.value = await invoke<GodotRelease[]>("fetch_godot_releases", { limit: 8 });
     releasesLoaded.value = true;
-    status.value = "Releases carregadas";
+    status.value = t("status.releasesLoaded");
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught);
   } finally {
@@ -211,7 +432,7 @@ async function loadReleases() {
 }
 
 function createProject() {
-  return runAction("Projeto criado", () =>
+  return runAction(t("status.projectCreated"), () =>
     invoke<HubState>("create_project", {
       request: { ...newProject, editorId: newProject.editorId || null },
     }),
@@ -219,7 +440,7 @@ function createProject() {
 }
 
 function importProject() {
-  return runAction("Projeto importado", () =>
+  return runAction(t("status.projectImported"), () =>
     invoke<HubState>("import_project", {
       request: {
         ...importProjectForm,
@@ -231,14 +452,14 @@ function importProject() {
 }
 
 function addEditor() {
-  return runAction("Editor cadastrado", () => invoke<HubState>("add_editor", { request: newEditor }));
+  return runAction(t("status.editorRegistered"), () => invoke<HubState>("add_editor", { request: newEditor }));
 }
 
 function downloadEditor(release: GodotRelease, asset: GodotReleaseAsset) {
   const key = assetKey(release, asset);
   downloadTarget.value = key;
 
-  return runAction("Editor instalado", async () => {
+  return runAction(t("status.editorInstalled"), async () => {
     const nextState = await invoke<HubState>("download_godot_editor", {
       request: {
         releaseTag: release.tagName,
@@ -256,41 +477,78 @@ function downloadEditor(release: GodotRelease, asset: GodotReleaseAsset) {
 }
 
 function saveSettings() {
-  return runAction("Paths salvos", () => invoke<HubState>("save_settings", { request: settingsForm }));
+  return runAction(t("status.pathsSaved"), () => invoke<HubState>("save_settings", { request: settingsForm }));
 }
 
 function launchProject(projectId: string) {
-  return runAction("Abrindo projeto", () => invoke<HubState>("launch_project", { projectId }));
+  return runAction(t("status.openingProject"), () => invoke<HubState>("launch_project", { projectId }));
 }
 
 function removeProject(projectId: string) {
-  return runAction("Projeto removido", () => invoke<HubState>("remove_project", { projectId }));
+  return runAction(t("status.projectRemoved"), () => invoke<HubState>("remove_project", { projectId }));
+}
+
+function moveProject() {
+  if (!activeProject.value) return;
+
+  return runAction(t("status.projectMoved"), () =>
+    invoke<HubState>("move_project", {
+      request: {
+        projectId: activeProject.value!.id,
+        destinationPath: moveDestinationPath.value,
+      },
+    }),
+  ).then(() => {
+    moveDestinationPath.value = activeProject.value?.path ?? "";
+    if (activeProject.value) loadGitStatus(activeProject.value.id);
+  });
 }
 
 function toggleFavorite(projectId: string) {
-  return runAction("Projeto atualizado", () => invoke<HubState>("toggle_project_favorite", { projectId }));
+  return runAction(t("status.projectUpdated"), () => invoke<HubState>("toggle_project_favorite", { projectId }));
 }
 
 function setDefaultEditor(editorId: string) {
-  return runAction("Editor padrão atualizado", () => invoke<HubState>("set_default_editor", { editorId }));
+  return runAction(t("status.defaultEditorUpdated"), () => invoke<HubState>("set_default_editor", { editorId }));
 }
 
 function removeEditor(editorId: string) {
-  return runAction("Editor removido", () => invoke<HubState>("remove_editor", { editorId }));
+  return runAction(t("status.editorRemoved"), () => invoke<HubState>("remove_editor", { editorId }));
+}
+
+function openProjectPage(projectId: string) {
+  activeProjectId.value = projectId;
+  projectPageOpen.value = true;
+  projectDetailTab.value = "overview";
+  const project = state.projects.find((item) => item.id === projectId);
+  moveDestinationPath.value = project?.path ?? "";
+  loadGitStatus(projectId);
+  loadGitLog(projectId);
+  loadGitBranches(projectId);
+}
+
+function closeProjectPage() {
+  projectPageOpen.value = false;
+  projectDetailTab.value = "overview";
+}
+
+function navigateSection(section: (typeof sections)[number]) {
+  projectPageOpen.value = false;
+  activeSection.value = section;
 }
 
 function editorLabel(editorId?: string | null) {
-  return state.editors.find((editor) => editor.id === editorId)?.version ?? defaultEditor.value?.version ?? "Sem editor";
+  return state.editors.find((editor) => editor.id === editorId)?.version ?? defaultEditor.value?.version ?? t("common.noEditor");
 }
 
 function lastOpenedLabel(value?: string | null) {
-  if (!value) return "Nunca aberto";
+  if (!value) return t("common.neverOpened");
   const date = new Date(Number(value) * 1000);
-  return Number.isNaN(date.getTime()) ? "Aberto recentemente" : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? t("common.openedRecently") : date.toLocaleString();
 }
 
 function releaseDate(value?: string | null) {
-  if (!value) return "Sem data";
+  if (!value) return t("common.noDate");
   return new Date(value).toLocaleDateString();
 }
 
@@ -366,14 +624,38 @@ function assetPlatform(name: string) {
 }
 
 function sectionDescription(section: (typeof sections)[number]) {
-  const descriptions = {
-    Projetos: "Biblioteca local, criação e abertura rápida.",
-    Editores: "Versões instaladas, paths e editor padrão.",
-    Releases: "Downloads oficiais do repositório da Godot.",
-    Paths: "Diretórios usados pelo hub para instalações e projetos.",
+  const descriptions: Record<(typeof sections)[number], string> = {
+    projects: t("sections.projectsDescription"),
+    editors: t("sections.editorsDescription"),
+    releases: t("sections.releasesDescription"),
+    paths: t("sections.pathsDescription"),
   };
 
   return descriptions[section];
+}
+
+function sectionTitle(section: (typeof sections)[number]) {
+  const titles: Record<(typeof sections)[number], string> = {
+    projects: t("sections.projectsTitle"),
+    editors: t("sections.editorsTitle"),
+    releases: t("sections.releasesTitle"),
+    paths: t("sections.pathsTitle"),
+  };
+
+  return titles[section];
+}
+
+function gitBadgeText() {
+  return gitStatusLabel(gitStatus.value, gitLoading.value);
+}
+
+function gitStatusLabel(status?: GitStatus | null, loading = false) {
+  if (loading) return "Checking";
+  if (!status) return t("git.unknown");
+  if (!status.available) return t("git.gitMissing");
+  if (!status.isRepo) return t("git.notInitialized");
+  if (status.changedFiles || status.untrackedFiles) return t("common.changes");
+  return t("git.clean");
 }
 
 onMounted(() => {
@@ -399,27 +681,27 @@ onMounted(() => {
         </div>
 
         <nav class="flex-1 p-3">
-          <p class="px-3 pb-2 text-[11px] font-bold uppercase text-slate-500">Library</p>
+          <p class="px-3 pb-2 text-[11px] font-bold uppercase text-slate-500">{{ t("nav.library") }}</p>
           <button
             v-for="section in sections"
             :key="section"
             class="mb-1 flex w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm font-semibold text-slate-400 transition hover:bg-white/5 hover:text-white"
             :class="{ 'bg-sky-500/15 text-white ring-1 ring-sky-400/20': activeSection === section }"
-            @click="activeSection = section"
+            @click="navigateSection(section)"
           >
-            <span>{{ section }}</span>
-            <span v-if="section === 'Projetos'" class="rounded bg-white/10 px-1.5 text-[11px]">{{ state.projects.length }}</span>
-            <span v-if="section === 'Editores'" class="rounded bg-white/10 px-1.5 text-[11px]">{{ state.editors.length }}</span>
+            <span>{{ t(`nav.${section}`) }}</span>
+            <span v-if="section === 'projects'" class="rounded bg-white/10 px-1.5 text-[11px]">{{ state.projects.length }}</span>
+            <span v-if="section === 'editors'" class="rounded bg-white/10 px-1.5 text-[11px]">{{ state.editors.length }}</span>
           </button>
         </nav>
 
         <div class="border-t border-white/10 p-4">
           <div class="rounded-lg border border-white/10 bg-black/20 p-3">
-            <p class="text-[11px] font-bold uppercase text-slate-500">Default editor</p>
+            <p class="text-[11px] font-bold uppercase text-slate-500">{{ t("common.defaultEditor") }}</p>
             <strong class="mt-1 block truncate text-sm">
-              {{ defaultEditor ? `${defaultEditor.name} ${defaultEditor.version}` : "Nenhum editor" }}
+              {{ defaultEditor ? `${defaultEditor.name} ${defaultEditor.version}` : t("common.noEditor") }}
             </strong>
-            <p class="mt-1 truncate text-xs text-slate-500">{{ defaultEditor?.executablePath || "Configure uma instalação" }}</p>
+            <p class="mt-1 truncate text-xs text-slate-500">{{ defaultEditor?.executablePath || t("common.configureInstallation") }}</p>
           </div>
         </div>
       </aside>
@@ -429,18 +711,22 @@ onMounted(() => {
           <div class="flex min-h-16 items-center gap-4 px-4 lg:px-8">
             <div class="lg:hidden">
               <select v-model="activeSection" class="select select-bordered select-sm bg-[#191d24]">
-                <option v-for="section in sections" :key="section" :value="section">{{ section }}</option>
+                <option v-for="section in sections" :key="section" :value="section">{{ t(`nav.${section}`) }}</option>
               </select>
             </div>
             <div class="min-w-0 flex-1">
-              <p class="text-[11px] font-black uppercase text-sky-400">{{ activeSection }}</p>
-              <h1 class="truncate text-lg font-black">{{ sectionDescription(activeSection) }}</h1>
+              <p class="text-[11px] font-black uppercase text-sky-400">Godot Forge / {{ t(`nav.${activeSection}`) }}</p>
+              <h1 class="truncate text-lg font-black">{{ sectionTitle(activeSection) }}</h1>
             </div>
-            <button class="btn btn-sm border-white/10 bg-white/5 text-slate-200 hover:bg-white/10" @click="activeSection = 'Releases'">
-              Instalar editor
+            <select v-model="selectedLocale" class="select select-bordered select-sm border-white/10 bg-[#191d24]">
+              <option value="en">English</option>
+              <option value="pt">Português</option>
+            </select>
+            <button class="btn btn-sm border-white/10 bg-white/5 text-slate-200 hover:bg-white/10" @click="navigateSection('releases')">
+              {{ t("common.installEditor") }}
             </button>
             <button class="btn btn-sm btn-primary" :disabled="!activeProject || !!busyAction" @click="launchProject(activeProject!.id)">
-              Launch
+              {{ t("common.launch") }}
             </button>
           </div>
         </header>
@@ -452,6 +738,253 @@ onMounted(() => {
           </div>
 
           <template v-else>
+            <section v-if="projectPageOpen && activeProject" class="grid gap-6">
+              <div class="overflow-hidden rounded-xl border border-white/10 bg-[#171b22]">
+                <div class="relative grid min-h-72 content-end bg-[radial-gradient(circle_at_24%_20%,#2b6f96_0%,#1b3343_34%,#11151b_100%)] p-6 lg:p-8">
+                  <button class="btn btn-sm absolute left-4 top-4 border-white/10 bg-black/30 text-slate-100 hover:bg-black/50" @click="closeProjectPage">
+                    {{ t("common.backToProjects") }}
+                  </button>
+                  <div class="max-w-4xl">
+                    <p class="text-xs font-black uppercase tracking-wide text-sky-300">{{ t("projectPage.pageLabel") }}</p>
+                    <h2 class="mt-2 text-5xl font-black leading-none tracking-tight">{{ activeProject.name }}</h2>
+                    <p class="mt-3 break-all text-sm text-slate-400">{{ activeProject.path }}</p>
+                    <div class="mt-5 flex flex-wrap gap-2">
+                      <span class="rounded bg-black/35 px-3 py-1 text-xs font-black text-slate-200">{{ projectEditor?.version ?? t("common.noEditor") }}</span>
+                      <span class="rounded bg-black/35 px-3 py-1 text-xs font-black text-slate-200">Git: {{ gitBadgeText() }}</span>
+                      <span class="rounded bg-black/35 px-3 py-1 text-xs font-black text-slate-200">{{ activeProject.favorite ? t("common.favorite") : t("nav.library") }}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flex flex-col gap-4 border-t border-white/10 p-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div class="flex flex-wrap gap-2">
+                    <button
+                      class="rounded-md px-3 py-2 text-xs font-black uppercase transition"
+                      :class="projectDetailTab === 'overview' ? 'bg-sky-500 text-white' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'"
+                      @click="projectDetailTab = 'overview'"
+                    >
+                      {{ t("projectPage.overview") }}
+                    </button>
+                    <button
+                      class="rounded-md px-3 py-2 text-xs font-black uppercase transition"
+                      :class="projectDetailTab === 'git' ? 'bg-sky-500 text-white' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'"
+                      @click="projectDetailTab = 'git'; remoteUrl = gitStatus?.remote || ''; loadGitStatus(activeProject.id); loadGitLog(activeProject.id); loadGitBranches(activeProject.id)"
+                    >
+                      Git
+                    </button>
+                    <button
+                      class="rounded-md px-3 py-2 text-xs font-black uppercase transition"
+                      :class="projectDetailTab === 'settings' ? 'bg-sky-500 text-white' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'"
+                      @click="projectDetailTab = 'settings'; moveDestinationPath = activeProject.path"
+                    >
+                      {{ t("common.settings") }}
+                    </button>
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    <button class="btn btn-sm btn-primary" :disabled="!!busyAction" @click="launchProject(activeProject.id)">{{ t("common.launchProject") }}</button>
+                    <button class="btn btn-sm border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" :disabled="!!busyAction" @click="toggleFavorite(activeProject.id)">
+                      {{ activeProject.favorite ? t("common.removeFavorite") : t("common.favorite") }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <section v-if="projectDetailTab === 'overview'" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+                <div class="grid gap-4 md:grid-cols-3">
+                  <div class="rounded-xl border border-white/10 bg-[#171b22] p-5">
+                    <p class="text-xs font-black uppercase text-slate-500">{{ t("common.engine") }}</p>
+                    <strong class="mt-2 block text-2xl">{{ projectEditor?.version ?? t("common.noEditor") }}</strong>
+                    <p class="mt-1 truncate text-xs text-slate-500">{{ projectEditor?.executablePath || t("common.configureInstallation") }}</p>
+                  </div>
+                  <div class="rounded-xl border border-white/10 bg-[#171b22] p-5">
+                    <p class="text-xs font-black uppercase text-slate-500">{{ t("common.lastOpened") }}</p>
+                    <strong class="mt-2 block text-xl">{{ lastOpenedLabel(activeProject.lastOpened) }}</strong>
+                    <p class="mt-1 text-xs text-slate-500">{{ t("projectPage.lastOpenedHint") }}</p>
+                  </div>
+                  <div class="rounded-xl border border-white/10 bg-[#171b22] p-5">
+                    <p class="text-xs font-black uppercase text-slate-500">{{ t("common.sourceControl") }}</p>
+                    <strong class="mt-2 block text-xl">{{ gitBadgeText() }}</strong>
+                    <p class="mt-1 text-xs text-slate-500">{{ gitStatus?.summary || t("projectPage.statusNotLoaded") }}</p>
+                  </div>
+                </div>
+
+                <aside class="rounded-xl border border-white/10 bg-[#171b22] p-5">
+                  <p class="text-xs font-black uppercase text-sky-400">{{ t("projectPage.quickActions") }}</p>
+                  <div class="mt-4 grid gap-2">
+                    <button class="btn btn-primary" :disabled="!!busyAction" @click="launchProject(activeProject.id)">{{ t("common.openInEditor") }}</button>
+                    <button class="btn border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" @click="projectDetailTab = 'git'; remoteUrl = gitStatus?.remote || ''; loadGitStatus(activeProject.id); loadGitLog(activeProject.id); loadGitBranches(activeProject.id)">
+                      {{ t("projectPage.gitManage") }}
+                    </button>
+                    <button class="btn border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" @click="projectDetailTab = 'settings'; moveDestinationPath = activeProject.path">
+                      {{ t("common.configureProject") }}
+                    </button>
+                  </div>
+                </aside>
+              </section>
+
+              <section v-if="projectDetailTab === 'git'" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+                <div class="rounded-xl border border-white/10 bg-[#171b22] p-5">
+                  <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p class="text-xs font-black uppercase text-sky-400">{{ t("git.projectGit") }}</p>
+                      <h3 class="mt-1 text-2xl font-black">{{ gitBadgeText() }}</h3>
+                      <p class="mt-1 text-sm text-slate-500">{{ gitStatus?.summary || t("projectPage.statusNotLoadedYet") }}</p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                      <button class="btn btn-sm border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" :disabled="gitLoading" @click="loadGitStatus(activeProject.id); loadGitLog(activeProject.id); loadGitBranches(activeProject.id)">
+                        {{ t("common.refresh") }}
+                      </button>
+                      <button
+                        class="btn btn-sm border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
+                        :disabled="!gitStatus?.isRepo || !!busyAction"
+                        @click="pushGitBranch(activeProject.id)"
+                      >
+                        {{ t("git.pushBranch") }}
+                      </button>
+                      <button
+                        v-if="gitStatus?.available && !gitStatus?.isRepo"
+                        class="btn btn-sm btn-primary"
+                        :disabled="gitLoading || !!busyAction"
+                        @click="initGit(activeProject.id)"
+                      >
+                        {{ t("git.initializeGit") }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="mt-5 grid gap-3 md:grid-cols-4">
+                    <div class="rounded-lg bg-black/20 p-4">
+                      <p class="text-xs font-black uppercase text-slate-500">{{ t("common.branch") }}</p>
+                      <strong class="mt-2 block truncate">{{ gitStatus?.branch || "n/a" }}</strong>
+                    </div>
+                    <div class="rounded-lg bg-black/20 p-4">
+                      <p class="text-xs font-black uppercase text-slate-500">{{ t("common.changes") }}</p>
+                      <strong class="mt-2 block text-2xl">{{ gitStatus?.changedFiles ?? 0 }}</strong>
+                    </div>
+                    <div class="rounded-lg bg-black/20 p-4">
+                      <p class="text-xs font-black uppercase text-slate-500">{{ t("common.untracked") }}</p>
+                      <strong class="mt-2 block text-2xl">{{ gitStatus?.untrackedFiles ?? 0 }}</strong>
+                    </div>
+                    <div class="rounded-lg bg-black/20 p-4">
+                      <p class="text-xs font-black uppercase text-slate-500">Remote</p>
+                      <strong class="mt-2 block truncate">{{ gitStatus?.remote ? "origin" : "n/a" }}</strong>
+                    </div>
+                  </div>
+
+                  <div class="mt-5 rounded-lg bg-black/20 p-4">
+                    <p class="text-xs font-black uppercase text-slate-500">Origin URL</p>
+                    <p class="mt-2 break-all text-sm text-slate-300">{{ gitStatus?.remote || t("git.noOrigin") }}</p>
+                  </div>
+
+                  <div class="mt-5 grid gap-4 lg:grid-cols-2">
+                    <div class="rounded-lg border border-white/10 bg-black/20 p-4">
+                      <div class="flex items-center justify-between gap-3">
+                        <p class="text-xs font-black uppercase text-slate-500">{{ t("git.branches") }}</p>
+                        <span class="text-xs text-slate-500">{{ t("git.localBranches", { count: gitBranches.length }) }}</span>
+                      </div>
+                      <div v-if="gitBranches.length" class="mt-3 grid gap-2">
+                        <button
+                          v-for="branch in gitBranches"
+                          :key="branch.name"
+                          class="flex items-center justify-between rounded-md px-3 py-2 text-left text-sm transition"
+                          :class="branch.current ? 'bg-sky-500/15 text-sky-200 ring-1 ring-sky-400/20' : 'bg-white/5 text-slate-300 hover:bg-white/10'"
+                          :disabled="branch.current || !!busyAction"
+                          @click="checkoutGitBranch(branch.name, activeProject.id)"
+                        >
+                          <span class="truncate">{{ branch.name }}</span>
+                          <span class="text-xs">{{ branch.current ? t("common.current") : t("common.checkout") }}</span>
+                        </button>
+                      </div>
+                      <p v-else class="mt-3 text-sm text-slate-500">{{ t("git.noLocalBranches") }}</p>
+                    </div>
+
+                    <div class="grid gap-4">
+                      <form class="rounded-lg border border-white/10 bg-black/20 p-4" @submit.prevent="createGitBranch(activeProject.id)">
+                        <p class="text-xs font-black uppercase text-slate-500">{{ t("git.createBranch") }}</p>
+                        <div class="mt-3 flex flex-col gap-2 sm:flex-row">
+                          <input v-model="branchName" class="input input-bordered input-sm border-white/10 bg-[#101216]" :placeholder="t('git.branchNamePlaceholder')" />
+                          <button class="btn btn-primary btn-sm" :disabled="!!busyAction || !branchName.trim()">{{ t("common.create") }}</button>
+                        </div>
+                      </form>
+
+                      <form class="rounded-lg border border-white/10 bg-black/20 p-4" @submit.prevent="saveGitRemote(activeProject.id)">
+                        <p class="text-xs font-black uppercase text-slate-500">Remote origin</p>
+                        <div class="mt-3 grid gap-2">
+                          <input v-model="remoteUrl" class="input input-bordered input-sm border-white/10 bg-[#101216]" placeholder="git@github.com:user/repo.git" />
+                          <button class="btn btn-primary btn-sm w-fit" :disabled="!!busyAction || !remoteUrl.trim()">{{ t("common.saveRemote") }}</button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+
+                <aside class="rounded-xl border border-white/10 bg-[#171b22] p-5">
+                  <p class="text-xs font-black uppercase text-sky-400">{{ t("projectPage.recentLog") }}</p>
+                  <div v-if="gitLogLoading" class="mt-4 text-sm text-slate-500">{{ t("common.loadingLog") }}</div>
+                  <div v-else-if="gitLog.length" class="mt-4 grid gap-3">
+                    <div v-for="entry in gitLog" :key="entry.hash" class="rounded-lg bg-black/20 p-3">
+                      <div class="flex items-center justify-between gap-3">
+                        <strong class="truncate text-sm">{{ entry.subject }}</strong>
+                        <span class="text-xs text-sky-300">{{ entry.hash }}</span>
+                      </div>
+                      <p class="mt-1 text-xs text-slate-500">{{ entry.author }} - {{ entry.relativeDate }}</p>
+                    </div>
+                  </div>
+                  <p v-else class="mt-4 text-sm text-slate-500">{{ t("projectPage.noCommits") }}</p>
+                </aside>
+              </section>
+
+              <section v-if="projectDetailTab === 'settings'" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+                <form class="rounded-xl border border-white/10 bg-[#171b22] p-5" @submit.prevent="moveProject">
+                  <p class="text-xs font-black uppercase text-sky-400">Project</p>
+                  <h3 class="mt-1 text-2xl font-black">{{ t("projectPage.projectSettings") }}</h3>
+                  <div class="mt-5 grid gap-4">
+                    <label class="grid gap-2">
+                      <span class="text-sm font-bold text-slate-300">{{ t("projectPage.pathCurrent") }}</span>
+                      <input class="input input-bordered border-white/10 bg-[#101216]" :value="activeProject.path" disabled />
+                    </label>
+                    <label class="grid gap-2">
+                      <span class="text-sm font-bold text-slate-300">{{ t("projectPage.newDestinationPath") }}</span>
+                      <input v-model="moveDestinationPath" class="input input-bordered border-white/10 bg-[#101216]" required />
+                    </label>
+                    <button class="btn btn-primary w-fit" :disabled="!!busyAction || moveDestinationPath === activeProject.path">
+                      {{ t("projectPage.moveProject") }}
+                    </button>
+                  </div>
+                </form>
+
+                <aside class="rounded-xl border border-white/10 bg-[#171b22] p-5">
+                  <p class="text-xs font-black uppercase text-sky-400">{{ t("projectPage.dangerZone") }}</p>
+                  <p class="mt-2 text-sm text-slate-500">{{ t("projectPage.dangerBody") }}</p>
+                  <button class="btn btn-error btn-outline mt-4" :disabled="!!busyAction" @click="removeProject(activeProject.id); closeProjectPage()">
+                    {{ t("common.removeFromLibrary") }}
+                  </button>
+                </aside>
+              </section>
+            </section>
+
+            <template v-else>
+            <section class="overflow-hidden rounded-xl border border-white/10 bg-[#171b22]">
+              <div class="flex flex-col gap-5 border-l-4 border-sky-400 p-5 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p class="text-[11px] font-black uppercase tracking-wide text-sky-400">{{ t("nav.currentScreen") }}</p>
+                  <h2 class="mt-1 text-3xl font-black tracking-tight lg:text-4xl">{{ sectionTitle(activeSection) }}</h2>
+                  <p class="mt-2 max-w-2xl text-sm text-slate-400">{{ sectionDescription(activeSection) }}</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    v-for="section in sections"
+                    :key="section"
+                    class="rounded-md px-3 py-2 text-xs font-black uppercase transition"
+                    :class="activeSection === section ? 'bg-sky-500 text-white shadow-lg shadow-sky-950/40' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'"
+                    @click="navigateSection(section)"
+                  >
+                    {{ t(`nav.${section}`) }}
+                  </button>
+                </div>
+              </div>
+            </section>
+
             <section
               v-if="hasOnboarding"
               class="overflow-hidden rounded-xl border border-white/10 bg-[linear-gradient(135deg,#1d2733_0%,#11141a_55%,#0e1117_100%)] shadow-2xl"
@@ -459,45 +992,44 @@ onMounted(() => {
               <div class="grid gap-8 p-6 lg:grid-cols-[1fr_420px] lg:p-8">
                 <div class="flex min-h-72 flex-col justify-end">
                   <span class="mb-4 w-fit rounded bg-sky-400/15 px-3 py-1 text-xs font-black uppercase text-sky-300 ring-1 ring-sky-400/20">
-                    Setup required
+                    {{ t("onboarding.setupRequired") }}
                   </span>
                   <h2 class="max-w-4xl text-4xl font-black leading-none tracking-tight lg:text-6xl">
-                    Seu launcher Godot com fluxo de estúdio.
+                    {{ t("onboarding.title") }}
                   </h2>
                   <p class="mt-4 max-w-2xl text-sm leading-6 text-slate-400 lg:text-base">
-                    Instale uma versão oficial da Godot, defina paths padrão e mantenha projetos locais prontos para abrir
-                    como em Unity Hub, Epic Launcher e Unreal Project Browser.
+                    {{ t("onboarding.body") }}
                   </p>
                   <div class="mt-6 flex flex-wrap gap-3">
-                    <button class="btn btn-primary" @click="activeSection = 'Releases'">Baixar Godot</button>
-                    <button class="btn border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" @click="activeSection = 'Editores'">
-                      Cadastrar manualmente
+                    <button class="btn btn-primary" @click="navigateSection('releases')">{{ t("onboarding.download") }}</button>
+                    <button class="btn border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" @click="navigateSection('editors')">
+                      {{ t("onboarding.register") }}
                     </button>
-                    <button class="btn btn-ghost text-slate-400" @click="dismissWelcome = true">Ocultar</button>
+                    <button class="btn btn-ghost text-slate-400" @click="dismissWelcome = true">Skip</button>
                   </div>
                 </div>
 
                 <div class="grid content-end gap-3">
                   <div class="rounded-lg border border-white/10 bg-black/25 p-4">
                     <p class="text-xs font-black uppercase text-sky-300">01 Engine install</p>
-                    <h3 class="mt-2 font-bold">Releases oficiais</h3>
-                    <p class="mt-1 text-sm text-slate-500">Escolha builds estáveis ou pré-release do GitHub da Godot.</p>
+                    <h3 class="mt-2 font-bold">{{ t("onboarding.engineInstallTitle") }}</h3>
+                    <p class="mt-1 text-sm text-slate-500">{{ t("onboarding.engineInstallBody") }}</p>
                   </div>
                   <div class="rounded-lg border border-white/10 bg-black/25 p-4">
                     <p class="text-xs font-black uppercase text-amber-300">02 Project library</p>
-                    <h3 class="mt-2 font-bold">Projetos locais</h3>
-                    <p class="mt-1 text-sm text-slate-500">Criação, importação, favoritos e abertura por versão.</p>
+                    <h3 class="mt-2 font-bold">{{ t("onboarding.projectLibraryTitle") }}</h3>
+                    <p class="mt-1 text-sm text-slate-500">{{ t("onboarding.projectLibraryBody") }}</p>
                   </div>
                 </div>
               </div>
             </section>
 
-            <section class="grid gap-3 md:grid-cols-3">
+            <section v-if="activeSection === 'projects'" class="grid gap-3 md:grid-cols-3">
               <div class="rounded-lg border border-white/10 bg-[#171b22] p-4">
-                <p class="text-xs font-bold uppercase text-slate-500">Projects</p>
+                <p class="text-xs font-bold uppercase text-slate-500">{{ t("nav.projects") }}</p>
                 <div class="mt-2 flex items-end justify-between">
                   <strong class="text-4xl font-black">{{ state.projects.length }}</strong>
-                  <span class="text-xs text-slate-500">{{ sortedProjects.length }} filtered</span>
+                  <span class="text-xs text-slate-500">{{ sortedProjects.length }} {{ t("projects.filtered") }}</span>
                 </div>
               </div>
               <div class="rounded-lg border border-white/10 bg-[#171b22] p-4">
@@ -514,17 +1046,17 @@ onMounted(() => {
               </div>
             </section>
 
-            <section v-if="activeSection === 'Projetos'" class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+            <section v-if="activeSection === 'projects'" class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
               <div class="grid gap-4">
                 <div class="flex flex-col gap-3 rounded-lg border border-white/10 bg-[#171b22] p-4 lg:flex-row lg:items-center">
                   <div class="flex-1">
-                    <p class="text-xs font-black uppercase text-sky-400">Project Browser</p>
-                    <h2 class="text-2xl font-black">Meus projetos</h2>
+                    <p class="text-xs font-black uppercase text-sky-400">{{ t("sections.projectsTitle") }}</p>
+                    <h2 class="text-2xl font-black">{{ t("projects.myProjects") }}</h2>
                   </div>
                   <input
                     v-model="projectSearch"
                     class="input input-bordered h-10 border-white/10 bg-[#101216] text-sm lg:w-80"
-                    placeholder="Buscar por nome ou caminho"
+                    :placeholder="t('projects.searchPlaceholder')"
                   />
                 </div>
 
@@ -534,7 +1066,7 @@ onMounted(() => {
                     :key="project.id"
                     class="group cursor-pointer overflow-hidden rounded-xl border border-white/10 bg-[#171b22] transition hover:-translate-y-0.5 hover:border-sky-400/50 hover:bg-[#1b2028]"
                     :class="{ 'border-sky-400/70 ring-1 ring-sky-400/30': activeProject?.id === project.id }"
-                    @click="activeProjectId = project.id"
+                    @click="openProjectPage(project.id)"
                   >
                     <div class="relative grid aspect-[16/9] place-items-center bg-[radial-gradient(circle_at_30%_20%,#2b6f96_0%,#1b3343_34%,#11151b_100%)]">
                       <span class="text-5xl font-black text-white/85">{{ projectInitials(project.name) || "GD" }}</span>
@@ -552,6 +1084,9 @@ onMounted(() => {
                       </div>
                       <div class="flex items-center justify-between gap-3">
                         <span class="rounded bg-white/5 px-2 py-1 text-xs font-bold text-slate-300">{{ editorLabel(project.editorId) }}</span>
+                        <span class="rounded px-2 py-1 text-[11px] font-black uppercase" :class="projectGitStatuses[project.id]?.isRepo ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/5 text-slate-500'">
+                          Git: {{ gitStatusLabel(projectGitStatuses[project.id]) }}
+                        </span>
                         <button class="btn btn-primary btn-xs" :disabled="!!busyAction" @click.stop="launchProject(project.id)">
                           Launch
                         </button>
@@ -561,44 +1096,44 @@ onMounted(() => {
                 </div>
 
                 <div v-else class="rounded-xl border border-dashed border-white/15 bg-[#171b22] p-10 text-center">
-                  <h3 class="text-2xl font-black">Nenhum projeto na biblioteca</h3>
-                  <p class="mt-2 text-slate-500">Crie um projeto novo ou importe uma pasta com project.godot.</p>
+                  <h3 class="text-2xl font-black">{{ t("common.noProjects") }}</h3>
+                  <p class="mt-2 text-slate-500">{{ t("projects.createNewOrImport") }}</p>
                 </div>
 
                 <div class="grid gap-4 lg:grid-cols-2">
                   <form class="rounded-lg border border-white/10 bg-[#171b22] p-4" @submit.prevent="createProject">
                     <div class="mb-4 flex items-center justify-between">
-                      <h3 class="font-black">Novo projeto</h3>
-                      <span class="text-xs text-slate-500">Create</span>
+                      <h3 class="font-black">{{ t("projects.newProject") }}</h3>
+                      <span class="text-xs text-slate-500">{{ t("common.create") }}</span>
                     </div>
                     <div class="grid gap-3">
-                      <input v-model="newProject.name" class="input input-bordered border-white/10 bg-[#101216]" required placeholder="Nome do projeto" />
-                      <input v-model="newProject.rootPath" class="input input-bordered border-white/10 bg-[#101216]" required placeholder="Pasta base" />
+                      <input v-model="newProject.name" class="input input-bordered border-white/10 bg-[#101216]" required :placeholder="t('projects.projectName')" />
+                      <input v-model="newProject.rootPath" class="input input-bordered border-white/10 bg-[#101216]" required :placeholder="t('projects.baseFolder')" />
                       <select v-model="newProject.editorId" class="select select-bordered border-white/10 bg-[#101216]">
-                        <option value="">Usar editor padrão</option>
+                        <option value="">{{ t("projects.useDefaultEditor") }}</option>
                         <option v-for="editor in state.editors" :key="editor.id" :value="editor.id">
                           {{ editor.name }} {{ editor.version }}
                         </option>
                       </select>
-                      <button class="btn btn-primary" :disabled="!!busyAction">Criar projeto</button>
+                      <button class="btn btn-primary" :disabled="!!busyAction">{{ t("projects.createProject") }}</button>
                     </div>
                   </form>
 
                   <form class="rounded-lg border border-white/10 bg-[#171b22] p-4" @submit.prevent="importProject">
                     <div class="mb-4 flex items-center justify-between">
-                      <h3 class="font-black">Importar projeto</h3>
-                      <span class="text-xs text-slate-500">Import</span>
+                      <h3 class="font-black">{{ t("projects.importProject") }}</h3>
+                      <span class="text-xs text-slate-500">{{ t("common.import") }}</span>
                     </div>
                     <div class="grid gap-3">
-                      <input v-model="importProjectForm.name" class="input input-bordered border-white/10 bg-[#101216]" placeholder="Nome opcional" />
-                      <input v-model="importProjectForm.path" class="input input-bordered border-white/10 bg-[#101216]" required placeholder="/path/do/projeto" />
+                      <input v-model="importProjectForm.name" class="input input-bordered border-white/10 bg-[#101216]" :placeholder="t('projects.optionalName')" />
+                      <input v-model="importProjectForm.path" class="input input-bordered border-white/10 bg-[#101216]" required :placeholder="t('projects.projectPathPlaceholder')" />
                       <select v-model="importProjectForm.editorId" class="select select-bordered border-white/10 bg-[#101216]">
-                        <option value="">Usar editor padrão</option>
+                        <option value="">{{ t("projects.useDefaultEditor") }}</option>
                         <option v-for="editor in state.editors" :key="editor.id" :value="editor.id">
                           {{ editor.name }} {{ editor.version }}
                         </option>
                       </select>
-                      <button class="btn border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" :disabled="!!busyAction">Importar</button>
+                      <button class="btn border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" :disabled="!!busyAction">{{ t("common.import") }}</button>
                     </div>
                   </form>
                 </div>
@@ -612,31 +1147,66 @@ onMounted(() => {
                   <div class="my-5 h-px bg-white/10" />
                   <div class="grid gap-3 text-sm">
                     <div class="flex justify-between gap-3">
-                      <span class="text-slate-500">Engine</span>
-                      <strong>{{ projectEditor?.version ?? "Sem editor" }}</strong>
+                      <span class="text-slate-500">{{ t("common.engine") }}</span>
+                      <strong>{{ projectEditor?.version ?? t("common.noEditor") }}</strong>
                     </div>
                     <div class="flex justify-between gap-3">
-                      <span class="text-slate-500">Último uso</span>
+                      <span class="text-slate-500">{{ t("common.lastOpened") }}</span>
                       <strong class="text-right">{{ lastOpenedLabel(activeProject.lastOpened) }}</strong>
                     </div>
                     <div class="flex justify-between gap-3">
-                      <span class="text-slate-500">Favorito</span>
-                      <strong>{{ activeProject.favorite ? "Sim" : "Não" }}</strong>
+                      <span class="text-slate-500">{{ t("common.favorite") }}</span>
+                      <strong>{{ activeProject.favorite ? t("common.yes") : t("common.no") }}</strong>
+                    </div>
+                  </div>
+                  <div class="mt-5 rounded-lg border border-white/10 bg-black/20 p-3">
+                    <div class="flex items-center justify-between gap-3">
+                      <span class="text-xs font-black uppercase text-slate-500">Git</span>
+                      <span class="rounded bg-white/10 px-2 py-1 text-[11px] font-black text-slate-300">{{ gitBadgeText() }}</span>
+                    </div>
+                    <p class="mt-2 text-sm text-slate-400">{{ gitStatus?.summary || t("projectPage.selectProjectGit") }}</p>
+                    <div v-if="gitStatus?.isRepo" class="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div class="rounded bg-white/5 p-2">
+                        <span class="block text-slate-500">Branch</span>
+                        <strong class="block truncate">{{ gitStatus.branch || "n/a" }}</strong>
+                      </div>
+                      <div class="rounded bg-white/5 p-2">
+                        <span class="block text-slate-500">{{ t("common.changes") }}</span>
+                        <strong>{{ gitStatus.changedFiles }} / {{ gitStatus.untrackedFiles }}</strong>
+                      </div>
+                    </div>
+                    <p v-if="gitStatus?.remote" class="mt-3 truncate text-xs text-slate-500">{{ gitStatus.remote }}</p>
+                    <div class="mt-3 flex flex-wrap gap-2">
+                      <button
+                        class="btn btn-xs border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
+                        :disabled="gitLoading"
+                        @click="loadGitStatus(activeProject.id)"
+                      >
+                        {{ t("common.refreshGit") }}
+                      </button>
+                    <button
+                      v-if="gitStatus?.available && !gitStatus?.isRepo"
+                      class="btn btn-primary btn-xs mt-3"
+                      :disabled="gitLoading || !!busyAction"
+                      @click="initGit(activeProject.id)"
+                    >
+                      {{ t("git.initializeGit") }}
+                    </button>
                     </div>
                   </div>
                   <div class="mt-6 grid gap-2">
-                    <button class="btn btn-primary" :disabled="!!busyAction" @click="launchProject(activeProject.id)">Launch project</button>
+                    <button class="btn btn-primary" :disabled="!!busyAction" @click="launchProject(activeProject.id)">{{ t("common.launchProject") }}</button>
                     <button class="btn border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" :disabled="!!busyAction" @click="toggleFavorite(activeProject.id)">
-                      {{ activeProject.favorite ? "Remover favorito" : "Adicionar favorito" }}
+                      {{ activeProject.favorite ? t("common.removeFavorite") : t("common.addFavorite") }}
                     </button>
-                    <button class="btn btn-error btn-outline" :disabled="!!busyAction" @click="removeProject(activeProject.id)">Remover da biblioteca</button>
+                    <button class="btn btn-error btn-outline" :disabled="!!busyAction" @click="removeProject(activeProject.id)">{{ t("common.removeFromLibrary") }}</button>
                   </div>
                 </template>
-                <p v-else class="mt-3 text-sm text-slate-500">Selecione um projeto para ver detalhes e ações.</p>
+                <p v-else class="mt-3 text-sm text-slate-500">{{ t("projectPage.selectProject") }}</p>
               </aside>
             </section>
 
-            <section v-if="activeSection === 'Editores'" class="grid gap-6">
+            <section v-if="activeSection === 'editors'" class="grid gap-6">
               <div class="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
                 <article
                   v-for="editor in state.editors"
@@ -659,48 +1229,48 @@ onMounted(() => {
                   </div>
                   <div class="mt-5 flex flex-wrap gap-2">
                     <button class="btn btn-sm border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" :disabled="editor.isDefault || !!busyAction" @click="setDefaultEditor(editor.id)">
-                      Tornar padrão
+                      {{ t("common.makeDefault") }}
                     </button>
-                    <button class="btn btn-sm btn-error btn-outline" :disabled="!!busyAction" @click="removeEditor(editor.id)">Remover</button>
+                    <button class="btn btn-sm btn-error btn-outline" :disabled="!!busyAction" @click="removeEditor(editor.id)">{{ t("common.remove") }}</button>
                   </div>
                 </article>
 
                 <div v-if="!state.editors.length" class="rounded-xl border border-dashed border-white/15 bg-[#171b22] p-8">
-                  <h3 class="text-2xl font-black">Nenhuma engine instalada</h3>
-                  <p class="mt-2 text-slate-500">Use Releases para baixar uma build oficial ou cadastre manualmente.</p>
+                  <h3 class="text-2xl font-black">{{ t("common.noEngineInstalled") }}</h3>
+                  <p class="mt-2 text-slate-500">{{ t("editors.noEngineBody") }}</p>
                 </div>
               </div>
 
               <form class="rounded-xl border border-white/10 bg-[#171b22] p-5" @submit.prevent="addEditor">
                 <div class="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                   <div>
-                    <p class="text-xs font-black uppercase text-sky-400">Manual setup</p>
-                    <h2 class="text-2xl font-black">Cadastrar instalação local</h2>
+                    <p class="text-xs font-black uppercase text-sky-400">{{ t("editors.manualSetup") }}</p>
+                    <h2 class="text-2xl font-black">{{ t("editors.localInstall") }}</h2>
                   </div>
-                  <button class="btn btn-primary" :disabled="!!busyAction">Cadastrar editor</button>
+                  <button class="btn btn-primary" :disabled="!!busyAction">{{ t("editors.registerEditor") }}</button>
                 </div>
                 <div class="grid gap-3 lg:grid-cols-2">
-                  <input v-model="newEditor.name" class="input input-bordered border-white/10 bg-[#101216]" required placeholder="Nome" />
-                  <input v-model="newEditor.version" class="input input-bordered border-white/10 bg-[#101216]" required placeholder="Versão" />
-                  <input v-model="newEditor.executablePath" class="input input-bordered border-white/10 bg-[#101216] lg:col-span-2" required placeholder="Path do executável" />
-                  <input v-model="newEditor.installPath" class="input input-bordered border-white/10 bg-[#101216]" required placeholder="Pasta de instalação" />
-                  <input v-model="newEditor.architecture" class="input input-bordered border-white/10 bg-[#101216]" required placeholder="Arquitetura" />
+                  <input v-model="newEditor.name" class="input input-bordered border-white/10 bg-[#101216]" required :placeholder="t('common.name')" />
+                  <input v-model="newEditor.version" class="input input-bordered border-white/10 bg-[#101216]" required :placeholder="t('editors.version')" />
+                  <input v-model="newEditor.executablePath" class="input input-bordered border-white/10 bg-[#101216] lg:col-span-2" required :placeholder="t('editors.executablePath')" />
+                  <input v-model="newEditor.installPath" class="input input-bordered border-white/10 bg-[#101216]" required :placeholder="t('editors.installFolder')" />
+                  <input v-model="newEditor.architecture" class="input input-bordered border-white/10 bg-[#101216]" required :placeholder="t('editors.architecture')" />
                 </div>
                 <label class="mt-4 flex w-fit cursor-pointer items-center gap-3 text-sm font-bold text-slate-300">
                   <input v-model="newEditor.makeDefault" type="checkbox" class="checkbox checkbox-primary" />
-                  Definir como padrão
+                  {{ t("editors.setDefault") }}
                 </label>
               </form>
             </section>
 
-            <section v-if="activeSection === 'Releases'" class="grid gap-4">
+            <section v-if="activeSection === 'releases'" class="grid gap-4">
               <div class="rounded-xl border border-white/10 bg-[#171b22] p-5">
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                   <div>
-                    <p class="text-xs font-black uppercase text-sky-400">Official GitHub releases</p>
-                    <h2 class="text-2xl font-black">Instalar versões da Godot</h2>
+                    <p class="text-xs font-black uppercase text-sky-400">{{ t("releases.officialGithub") }}</p>
+                    <h2 class="text-2xl font-black">{{ t("releases.title") }}</h2>
                     <p class="mt-1 text-sm text-slate-500">
-                      Mostrando builds compatíveis com {{ systemProfile.os }} / {{ systemProfile.arch }}.
+                      {{ t("releases.showingBuilds", { os: systemProfile.os, arch: systemProfile.arch }) }}
                     </p>
                   </div>
                   <div class="flex flex-col gap-2 lg:items-end">
@@ -721,9 +1291,9 @@ onMounted(() => {
                       </button>
                     </div>
                     <div class="flex flex-col gap-2 sm:flex-row">
-                    <input v-model="releaseQuery" class="input input-bordered border-white/10 bg-[#101216]" placeholder="Filtrar versão ou asset" />
+                    <input v-model="releaseQuery" class="input input-bordered border-white/10 bg-[#101216]" :placeholder="t('releases.filterPlaceholder')" />
                     <button class="btn btn-primary" :disabled="!!busyAction" @click="loadReleases">
-                      {{ releasesLoaded ? "Atualizar" : "Buscar releases" }}
+                      {{ releasesLoaded ? t("common.refresh") : t("common.fetchReleases") }}
                     </button>
                     </div>
                   </div>
@@ -731,8 +1301,8 @@ onMounted(() => {
               </div>
 
               <div v-if="!releasesLoaded" class="rounded-xl border border-dashed border-white/15 bg-[#171b22] p-10 text-center">
-                <h3 class="text-2xl font-black">Catálogo ainda não carregado</h3>
-                <p class="mt-2 text-slate-500">Busque releases oficiais e instale a build certa para seu sistema.</p>
+                <h3 class="text-2xl font-black">{{ t("common.catalogNotLoaded") }}</h3>
+                <p class="mt-2 text-slate-500">{{ t("releases.fetchOfficial") }}</p>
               </div>
 
               <article
@@ -748,7 +1318,7 @@ onMounted(() => {
                         {{ release.prerelease ? "PREVIEW" : "STABLE" }}
                       </span>
                     </div>
-                    <p class="mt-1 text-sm text-slate-500">{{ release.name || "Godot release" }} · {{ releaseDate(release.publishedAt) }}</p>
+                    <p class="mt-1 text-sm text-slate-500">{{ release.name || "Godot release" }} - {{ releaseDate(release.publishedAt) }}</p>
                   </div>
                   <a class="btn btn-sm border-white/10 bg-white/5 text-slate-100 hover:bg-white/10" :href="release.htmlUrl" target="_blank">
                     GitHub
@@ -778,43 +1348,44 @@ onMounted(() => {
                       <span v-if="isAssetInstalling(release, asset)" class="loading loading-spinner loading-xs" />
                       {{
                         isAssetInstalling(release, asset)
-                          ? "Instalando..."
+                          ? t("common.installing")
                           : isAssetInstalled(release, asset)
-                            ? "Instalado"
-                            : "Baixar e instalar"
+                            ? t("common.installed")
+                            : t("common.downloadAndInstall")
                       }}
                     </button>
                   </div>
                 </div>
                 <div v-if="!featuredAssets(release).length" class="mt-5 rounded-lg border border-dashed border-white/10 bg-black/20 p-4 text-sm text-slate-500">
-                  Nenhum asset {{ releaseFlavor === "dotnet" ? ".NET/Mono" : "Standard" }} compatível com
-                  {{ systemProfile.os }} / {{ systemProfile.arch }} nesta release.
+                  {{ t("releases.noAsset") }} {{ releaseFlavor === "dotnet" ? ".NET/Mono" : "Standard" }} {{ t("releases.compatibleWith") }}
+                  {{ systemProfile.os }} / {{ systemProfile.arch }} {{ t("releases.noAssetSuffix") }}
                 </div>
               </article>
             </section>
 
-            <section v-if="activeSection === 'Paths'" class="rounded-xl border border-white/10 bg-[#171b22] p-5">
+            <section v-if="activeSection === 'paths'" class="rounded-xl border border-white/10 bg-[#171b22] p-5">
               <form class="grid gap-5" @submit.prevent="saveSettings">
                 <div>
-                  <p class="text-xs font-black uppercase text-sky-400">Workspace settings</p>
-                  <h2 class="text-2xl font-black">Paths padrão</h2>
-                  <p class="mt-1 text-sm text-slate-500">Controle onde o Forge instala engines e cria projetos.</p>
+                  <p class="text-xs font-black uppercase text-sky-400">{{ t("paths.workspaceSettings") }}</p>
+                  <h2 class="text-2xl font-black">{{ t("paths.defaultPaths") }}</h2>
+                  <p class="mt-1 text-sm text-slate-500">{{ t("paths.control") }}</p>
                 </div>
                 <div class="grid gap-4 lg:grid-cols-2">
                   <label class="grid gap-2">
-                    <span class="text-sm font-bold text-slate-300">Instalações da Godot</span>
+                    <span class="text-sm font-bold text-slate-300">{{ t("paths.installations") }}</span>
                     <input v-model="settingsForm.defaultInstallPath" class="input input-bordered border-white/10 bg-[#101216]" required />
                   </label>
                   <label class="grid gap-2">
-                    <span class="text-sm font-bold text-slate-300">Projetos</span>
+                    <span class="text-sm font-bold text-slate-300">{{ t("nav.projects") }}</span>
                     <input v-model="settingsForm.defaultProjectPath" class="input input-bordered border-white/10 bg-[#101216]" required />
                   </label>
                 </div>
                 <div>
-                  <button class="btn btn-primary" :disabled="!!busyAction">Salvar paths</button>
+                  <button class="btn btn-primary" :disabled="!!busyAction">{{ t("common.savePaths") }}</button>
                 </div>
               </form>
             </section>
+            </template>
           </template>
         </div>
 
