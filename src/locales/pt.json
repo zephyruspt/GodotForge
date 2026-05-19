@@ -3,6 +3,8 @@
     "addFavorite": "Adicionar favorito",
     "backToProjects": "Voltar para projetos",
     "branch": "Branch",
+    "browse": "Procurar",
+    "cancel": "Cancelar",
     "catalogNotLoaded": "Catálogo ainda não carregado",
     "changes": "Mudanças",
     "checkout": "trocar",
@@ -11,6 +13,7 @@
     "create": "Criar",
     "current": "atual",
     "defaultEditor": "Editor padrão",
+    "delete": "Remover",
     "downloadAndInstall": "Baixar e instalar",
     "editor": "Editor",
     "engine": "Engine",
@@ -35,6 +38,7 @@
     "noProjects": "Nenhum projeto na biblioteca",
     "openInEditor": "Abrir no editor",
     "openedRecently": "Aberto recentemente",
+    "project": "Projeto",
     "refresh": "Atualizar",
     "refreshGit": "Atualizar Git",
     "register": "Cadastrar",
@@ -186,5 +190,10 @@
     "lightTheme": "Claro",
     "preferences": "Preferências",
     "theme": "Tema"
+  },
+  "confirmDelete": {
+    "editorBody": "Remover \"{name}\" da lista de editores? Isso não apaga arquivos do disco.",
+    "projectBody": "Remover \"{name}\" da biblioteca? Isso não apaga a pasta do projeto.",
+    "title": "Confirmar remoção"
   }
 }

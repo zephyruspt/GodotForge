@@ -3,6 +3,8 @@
     "addFavorite": "Add favorite",
     "backToProjects": "Back to projects",
     "branch": "Branch",
+    "browse": "Browse",
+    "cancel": "Cancel",
     "catalogNotLoaded": "Catalog not loaded yet",
     "changes": "Changes",
     "checkout": "checkout",
@@ -11,6 +13,7 @@
     "create": "Create",
     "current": "current",
     "defaultEditor": "Default editor",
+    "delete": "Delete",
     "downloadAndInstall": "Download and install",
     "editor": "Editor",
     "engine": "Engine",
@@ -35,6 +38,7 @@
     "noProjects": "No projects in the library",
     "openInEditor": "Open in editor",
     "openedRecently": "Opened recently",
+    "project": "Project",
     "refresh": "Refresh",
     "refreshGit": "Refresh Git",
     "register": "Register",
@@ -186,5 +190,10 @@
     "lightTheme": "Light",
     "preferences": "Preferences",
     "theme": "Theme"
+  },
+  "confirmDelete": {
+    "editorBody": "Remove \"{name}\" from the editor list? This will not delete files from disk.",
+    "projectBody": "Remove \"{name}\" from the library? This will not delete the project folder.",
+    "title": "Confirm removal"
   }
 }

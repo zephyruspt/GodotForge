@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "vue-i18n";
 import appLogo from "./assets/godot-forge-logo.png";
 
@@ -78,6 +79,15 @@ type GitBranch = {
 };
 
 type ThemeName = "godotforge" | "godotforge-light";
+type PathTarget =
+  | "newProjectRoot"
+  | "importProjectPath"
+  | "newEditorExecutable"
+  | "newEditorInstall"
+  | "settingsInstall"
+  | "settingsProject"
+  | "moveProjectDestination";
+type DeleteTarget = "project" | "editor";
 
 const localeStorageKey = "godot-forge-locale";
 const themeStorageKey = "godot-forge-theme";
@@ -134,6 +144,13 @@ const gitLogLoading = ref(false);
 const gitBranches = ref<GitBranch[]>([]);
 const branchName = ref("");
 const remoteUrl = ref("");
+const deleteDialog = reactive({
+  open: false,
+  type: "project" as DeleteTarget,
+  id: "",
+  name: "",
+  closeProjectPage: false,
+});
 const systemProfile = reactive<SystemProfile>({
   os: "unknown",
   arch: "unknown",
@@ -496,11 +513,53 @@ function saveSettings() {
   return runAction(t("status.pathsSaved"), () => invoke<HubState>("save_settings", { request: settingsForm }));
 }
 
+function setPathValue(target: PathTarget, value: string) {
+  const path = value.trim();
+  if (!path) return;
+
+  const setters: Record<PathTarget, () => void> = {
+    newProjectRoot: () => {
+      newProject.rootPath = path;
+    },
+    importProjectPath: () => {
+      importProjectForm.path = path;
+    },
+    newEditorExecutable: () => {
+      newEditor.executablePath = path;
+    },
+    newEditorInstall: () => {
+      newEditor.installPath = path;
+    },
+    settingsInstall: () => {
+      settingsForm.defaultInstallPath = path;
+    },
+    settingsProject: () => {
+      settingsForm.defaultProjectPath = path;
+    },
+    moveProjectDestination: () => {
+      moveDestinationPath.value = path;
+    },
+  };
+
+  setters[target]();
+}
+
+async function browsePath(target: PathTarget, directory = true) {
+  const selected = await open({
+    directory,
+    multiple: false,
+  });
+
+  if (typeof selected === "string") {
+    setPathValue(target, selected);
+  }
+}
+
 function launchProject(projectId: string) {
   return runAction(t("status.openingProject"), () => invoke<HubState>("launch_project", { projectId }));
 }
 
-function removeProject(projectId: string) {
+function executeRemoveProject(projectId: string) {
   return runAction(t("status.projectRemoved"), () => invoke<HubState>("remove_project", { projectId }));
 }
 
@@ -528,8 +587,46 @@ function setDefaultEditor(editorId: string) {
   return runAction(t("status.defaultEditorUpdated"), () => invoke<HubState>("set_default_editor", { editorId }));
 }
 
-function removeEditor(editorId: string) {
+function executeRemoveEditor(editorId: string) {
   return runAction(t("status.editorRemoved"), () => invoke<HubState>("remove_editor", { editorId }));
+}
+
+function requestRemoveProject(projectId: string, closeProjectPageAfterConfirm = false) {
+  const project = state.projects.find((item) => item.id === projectId);
+  deleteDialog.open = true;
+  deleteDialog.type = "project";
+  deleteDialog.id = projectId;
+  deleteDialog.name = project?.name ?? t("common.project");
+  deleteDialog.closeProjectPage = closeProjectPageAfterConfirm;
+}
+
+function requestRemoveEditor(editorId: string) {
+  const editor = state.editors.find((item) => item.id === editorId);
+  deleteDialog.open = true;
+  deleteDialog.type = "editor";
+  deleteDialog.id = editorId;
+  deleteDialog.name = editor ? `${editor.name} ${editor.version}` : t("common.editor");
+  deleteDialog.closeProjectPage = false;
+}
+
+function cancelDelete() {
+  deleteDialog.open = false;
+  deleteDialog.id = "";
+  deleteDialog.name = "";
+  deleteDialog.closeProjectPage = false;
+}
+
+async function confirmDelete() {
+  if (!deleteDialog.id) return;
+
+  const shouldCloseProjectPage = deleteDialog.closeProjectPage;
+  const action = deleteDialog.type === "project" ? executeRemoveProject(deleteDialog.id) : executeRemoveEditor(deleteDialog.id);
+  cancelDelete();
+  await action;
+
+  if (shouldCloseProjectPage) {
+    closeProjectPage();
+  }
 }
 
 function openProjectPage(projectId: string) {
@@ -970,7 +1067,12 @@ onMounted(() => {
                     </label>
                     <label class="grid gap-2">
                       <span class="text-sm font-bold text-base-content/80">{{ t("projectPage.newDestinationPath") }}</span>
-                      <input v-model="moveDestinationPath" class="input input-bordered border-base-content/10 bg-base-200" required />
+                      <div class="flex gap-2">
+                        <input v-model="moveDestinationPath" class="input input-bordered min-w-0 flex-1 border-base-content/10 bg-base-200" required />
+                        <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="browsePath('moveProjectDestination')">
+                          {{ t("common.browse") }}
+                        </button>
+                      </div>
                     </label>
                     <button class="btn btn-primary w-fit" :disabled="!!busyAction || moveDestinationPath === activeProject.path">
                       {{ t("projectPage.moveProject") }}
@@ -981,7 +1083,7 @@ onMounted(() => {
                 <aside class="rounded-xl border border-base-content/10 bg-base-100 p-5">
                   <p class="text-xs font-black uppercase text-primary">{{ t("projectPage.dangerZone") }}</p>
                   <p class="mt-2 text-sm text-base-content/50">{{ t("projectPage.dangerBody") }}</p>
-                  <button class="btn btn-error btn-outline mt-4" :disabled="!!busyAction" @click="removeProject(activeProject.id); closeProjectPage()">
+                  <button class="btn btn-error btn-outline mt-4" :disabled="!!busyAction" @click="requestRemoveProject(activeProject.id, true)">
                     {{ t("common.removeFromLibrary") }}
                   </button>
                 </aside>
@@ -1133,7 +1235,12 @@ onMounted(() => {
                     </div>
                     <div class="grid gap-3">
                       <input v-model="newProject.name" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('projects.projectName')" />
-                      <input v-model="newProject.rootPath" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('projects.baseFolder')" />
+                      <div class="flex gap-2">
+                        <input v-model="newProject.rootPath" class="input input-bordered min-w-0 flex-1 border-base-content/10 bg-base-200" required :placeholder="t('projects.baseFolder')" />
+                        <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="browsePath('newProjectRoot')">
+                          {{ t("common.browse") }}
+                        </button>
+                      </div>
                       <select v-model="newProject.editorId" class="select select-bordered border-base-content/10 bg-base-200">
                         <option value="">{{ t("projects.useDefaultEditor") }}</option>
                         <option v-for="editor in state.editors" :key="editor.id" :value="editor.id">
@@ -1151,7 +1258,12 @@ onMounted(() => {
                     </div>
                     <div class="grid gap-3">
                       <input v-model="importProjectForm.name" class="input input-bordered border-base-content/10 bg-base-200" :placeholder="t('projects.optionalName')" />
-                      <input v-model="importProjectForm.path" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('projects.projectPathPlaceholder')" />
+                      <div class="flex gap-2">
+                        <input v-model="importProjectForm.path" class="input input-bordered min-w-0 flex-1 border-base-content/10 bg-base-200" required :placeholder="t('projects.projectPathPlaceholder')" />
+                        <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="browsePath('importProjectPath')">
+                          {{ t("common.browse") }}
+                        </button>
+                      </div>
                       <select v-model="importProjectForm.editorId" class="select select-bordered border-base-content/10 bg-base-200">
                         <option value="">{{ t("projects.useDefaultEditor") }}</option>
                         <option v-for="editor in state.editors" :key="editor.id" :value="editor.id">
@@ -1224,7 +1336,7 @@ onMounted(() => {
                     <button class="btn border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :disabled="!!busyAction" @click="toggleFavorite(activeProject.id)">
                       {{ activeProject.favorite ? t("common.removeFavorite") : t("common.addFavorite") }}
                     </button>
-                    <button class="btn btn-error btn-outline" :disabled="!!busyAction" @click="removeProject(activeProject.id)">{{ t("common.removeFromLibrary") }}</button>
+                    <button class="btn btn-error btn-outline" :disabled="!!busyAction" @click="requestRemoveProject(activeProject.id)">{{ t("common.removeFromLibrary") }}</button>
                   </div>
                 </template>
                 <p v-else class="mt-3 text-sm text-base-content/50">{{ t("projectPage.selectProject") }}</p>
@@ -1256,7 +1368,7 @@ onMounted(() => {
                     <button class="btn btn-sm border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :disabled="editor.isDefault || !!busyAction" @click="setDefaultEditor(editor.id)">
                       {{ t("common.makeDefault") }}
                     </button>
-                    <button class="btn btn-sm btn-error btn-outline" :disabled="!!busyAction" @click="removeEditor(editor.id)">{{ t("common.remove") }}</button>
+                    <button class="btn btn-sm btn-error btn-outline" :disabled="!!busyAction" @click="requestRemoveEditor(editor.id)">{{ t("common.remove") }}</button>
                   </div>
                 </article>
 
@@ -1277,8 +1389,18 @@ onMounted(() => {
                 <div class="grid gap-3 lg:grid-cols-2">
                   <input v-model="newEditor.name" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('common.name')" />
                   <input v-model="newEditor.version" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('editors.version')" />
-                  <input v-model="newEditor.executablePath" class="input input-bordered border-base-content/10 bg-base-200 lg:col-span-2" required :placeholder="t('editors.executablePath')" />
-                  <input v-model="newEditor.installPath" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('editors.installFolder')" />
+                  <div class="flex gap-2 lg:col-span-2">
+                    <input v-model="newEditor.executablePath" class="input input-bordered min-w-0 flex-1 border-base-content/10 bg-base-200" required :placeholder="t('editors.executablePath')" />
+                    <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="browsePath('newEditorExecutable', false)">
+                      {{ t("common.browse") }}
+                    </button>
+                  </div>
+                  <div class="flex gap-2">
+                    <input v-model="newEditor.installPath" class="input input-bordered min-w-0 flex-1 border-base-content/10 bg-base-200" required :placeholder="t('editors.installFolder')" />
+                    <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="browsePath('newEditorInstall')">
+                      {{ t("common.browse") }}
+                    </button>
+                  </div>
                   <input v-model="newEditor.architecture" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('editors.architecture')" />
                 </div>
                 <label class="mt-4 flex w-fit cursor-pointer items-center gap-3 text-sm font-bold text-base-content/80">
@@ -1398,11 +1520,21 @@ onMounted(() => {
                 <div class="mt-5 grid gap-4 lg:grid-cols-2">
                   <label class="grid gap-2">
                     <span class="text-sm font-bold text-base-content/80">{{ t("settings.installations") }}</span>
-                    <input v-model="settingsForm.defaultInstallPath" class="input input-bordered border-base-content/10 bg-base-200" required />
+                    <div class="flex gap-2">
+                      <input v-model="settingsForm.defaultInstallPath" class="input input-bordered min-w-0 flex-1 border-base-content/10 bg-base-200" required />
+                      <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="browsePath('settingsInstall')">
+                        {{ t("common.browse") }}
+                      </button>
+                    </div>
                   </label>
                   <label class="grid gap-2">
                     <span class="text-sm font-bold text-base-content/80">{{ t("nav.projects") }}</span>
-                    <input v-model="settingsForm.defaultProjectPath" class="input input-bordered border-base-content/10 bg-base-200" required />
+                    <div class="flex gap-2">
+                      <input v-model="settingsForm.defaultProjectPath" class="input input-bordered min-w-0 flex-1 border-base-content/10 bg-base-200" required />
+                      <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="browsePath('settingsProject')">
+                        {{ t("common.browse") }}
+                      </button>
+                    </div>
                   </label>
                 </div>
                 <div>
@@ -1434,6 +1566,30 @@ onMounted(() => {
             </template>
           </template>
         </div>
+
+        <dialog class="modal" :open="deleteDialog.open">
+          <div class="modal-box border border-base-content/10 bg-base-100">
+            <h3 class="text-xl font-black">{{ t("confirmDelete.title") }}</h3>
+            <p class="mt-3 text-sm text-base-content/70">
+              {{
+                deleteDialog.type === "project"
+                  ? t("confirmDelete.projectBody", { name: deleteDialog.name })
+                  : t("confirmDelete.editorBody", { name: deleteDialog.name })
+              }}
+            </p>
+            <div class="modal-action">
+              <button class="btn border-base-content/10 bg-base-content/5" type="button" @click="cancelDelete">
+                {{ t("common.cancel") }}
+              </button>
+              <button class="btn btn-error" type="button" :disabled="!!busyAction" @click="confirmDelete">
+                {{ t("common.delete") }}
+              </button>
+            </div>
+          </div>
+          <form class="modal-backdrop" method="dialog" @submit.prevent="cancelDelete">
+            <button>{{ t("common.cancel") }}</button>
+          </form>
+        </dialog>
 
         <div v-if="status || error || busyAction" class="toast toast-end z-30">
           <div class="alert border border-base-content/10 shadow-xl" :class="error ? 'alert-error' : busyAction ? 'alert-info' : 'alert-success'">
