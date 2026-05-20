@@ -36,7 +36,7 @@ import {
   sectionTitle as formatSectionTitle,
 } from "../utils/forgeHelpers";
 
-export const sections: Section[] = ["projects", "editors", "settings"];
+export const sections: Section[] = ["dashboard", "projects", "editors", "diagnostics", "settings"];
 
 export function useForgeApp() {
   const state = reactive<HubState>({
@@ -52,7 +52,7 @@ export function useForgeApp() {
 
   const { locale, t } = useI18n();
 
-  const activeSection = ref<Section>("projects");
+  const activeSection = ref<Section>("dashboard");
   const activeProjectId = ref("");
   const busyAction = ref("");
   const error = ref("");

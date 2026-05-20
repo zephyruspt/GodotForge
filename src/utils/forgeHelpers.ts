@@ -100,8 +100,10 @@ export function projectInitials(name: string) {
 
 export function sectionTitle(section: Section, t: Translator) {
   const titles: Record<Section, string> = {
+    dashboard: t("sections.dashboardTitle"),
     projects: t("sections.projectsTitle"),
     editors: t("sections.editorsTitle"),
+    diagnostics: t("sections.diagnosticsTitle"),
     settings: t("sections.settingsTitle"),
   };
   return titles[section];

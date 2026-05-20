@@ -54,6 +54,8 @@
     "yes": "Yes"
   },
   "nav": {
+    "dashboard": "Dashboard",
+    "diagnostics": "Diagnostics",
     "editors": "Editors",
     "library": "Library",
     "projects": "Projects",
@@ -61,6 +63,10 @@
     "settings": "Settings"
   },
   "sections": {
+    "dashboardDescription": "Workspace overview, quick stats, and discovered local items.",
+    "dashboardTitle": "Dashboard",
+    "diagnosticsDescription": "System checks, release cache, and activity logs.",
+    "diagnosticsTitle": "Diagnostics",
     "editorsDescription": "Installed versions, paths, and default editor.",
     "editorsTitle": "Engine Installs",
     "projectsDescription": "Local library, project creation, and quick launch.",
@@ -69,6 +75,15 @@
     "releasesTitle": "Release Manager",
     "settingsDescription": "Directories used by the hub for installations and projects.",
     "settingsTitle": "Workspace Settings"
+  },
+  "dashboard": {
+    "manageEditors": "Manage editors",
+    "notConfigured": "Not configured",
+    "openProjects": "Open projects",
+    "scanPendingBody": "Run a workspace scan to find local editors and projects that are not registered yet.",
+    "scanPendingTitle": "No workspace scan yet",
+    "workspace": "Workspace",
+    "workspaceSettings": "Workspace settings"
   },
   "onboarding": {
     "back": "Back",

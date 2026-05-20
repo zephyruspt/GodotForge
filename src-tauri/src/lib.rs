@@ -65,19 +65,33 @@ fn app_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         &[&about, &app_separator, &quit],
     )?;
 
+    let dashboard = MenuItem::with_id(
+        handle,
+        "navigate-dashboard",
+        "Dashboard",
+        true,
+        Some("CmdOrCtrl+1"),
+    )?;
     let projects = MenuItem::with_id(
         handle,
         "navigate-projects",
         "Projects",
         true,
-        Some("CmdOrCtrl+1"),
+        Some("CmdOrCtrl+2"),
     )?;
     let editors = MenuItem::with_id(
         handle,
         "navigate-editors",
         "Editors",
         true,
-        Some("CmdOrCtrl+2"),
+        Some("CmdOrCtrl+3"),
+    )?;
+    let diagnostics = MenuItem::with_id(
+        handle,
+        "navigate-diagnostics",
+        "Diagnostics",
+        true,
+        Some("CmdOrCtrl+4"),
     )?;
     let settings = MenuItem::with_id(
         handle,
@@ -92,7 +106,7 @@ fn app_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         handle,
         "File",
         true,
-        &[&projects, &editors, &settings, &file_separator, &close],
+        &[&dashboard, &projects, &editors, &diagnostics, &settings, &file_separator, &close],
     )?;
 
     let undo = PredefinedMenuItem::undo(handle, None)?;
@@ -165,11 +179,17 @@ pub fn run() {
     let builder = builder
         .menu(app_menu)
         .on_menu_event(|app, event| match event.id() {
+            id if id == "navigate-dashboard" => {
+                let _ = app.emit("menu-action", "dashboard");
+            }
             id if id == "navigate-projects" => {
                 let _ = app.emit("menu-action", "projects");
             }
             id if id == "navigate-editors" => {
                 let _ = app.emit("menu-action", "editors");
+            }
+            id if id == "navigate-diagnostics" => {
+                let _ = app.emit("menu-action", "diagnostics");
             }
             id if id == "navigate-settings" => {
                 let _ = app.emit("menu-action", "settings");

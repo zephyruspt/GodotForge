@@ -126,7 +126,7 @@ export type GitBranch = {
   current: boolean;
 };
 
-export type Section = "projects" | "editors" | "settings";
+export type Section = "dashboard" | "projects" | "editors" | "diagnostics" | "settings";
 export type ThemeName = "godotforge" | "godotforge-light";
 export type ReleaseFlavor = "standard" | "dotnet";
 export type ProjectDetailTab = "overview" | "git" | "settings";

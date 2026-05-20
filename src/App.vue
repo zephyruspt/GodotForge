@@ -6,6 +6,8 @@ import DeleteConfirmDialog from "./components/DeleteConfirmDialog.vue";
 import SecurityPolicyDialog from "./components/SecurityPolicyDialog.vue";
 import WelcomeScreen from "./components/WelcomeScreen.vue";
 import { useForgeApp } from "./composables/useForgeApp";
+import DashboardPage from "./pages/DashboardPage.vue";
+import DiagnosticsPage from "./pages/DiagnosticsPage.vue";
 import EditorsPage from "./pages/EditorsPage.vue";
 import ProjectsPage from "./pages/ProjectsPage.vue";
 import SettingsPage from "./pages/SettingsPage.vue";
@@ -183,6 +185,25 @@ const {
           </div>
 
           <template v-else>
+            <DashboardPage
+              v-if="activeSection === 'dashboard'"
+              :projects="state.projects"
+              :editors="state.editors"
+              :default-editor="defaultEditor"
+              :default-project-path="state.settings.defaultProjectPath"
+              :default-install-path="state.settings.defaultInstallPath"
+              :workspace-scan="workspaceScan"
+              :workspace-scan-loaded="workspaceScanState.loaded"
+              :workspace-scan-loading="workspaceScanState.loading"
+              :workspace-scan-action="workspaceScanState.action"
+              :workspace-scan-error="workspaceScanState.error"
+              :busy="!!busyAction"
+              @navigate="navigateSection"
+              @scan-workspace="scanWorkspace"
+              @register-discovered-editor="registerDiscoveredEditor"
+              @register-discovered-project="registerDiscoveredProject"
+            />
+
             <ProjectsPage
               v-if="activeSection === 'projects'"
               v-model:project-search="projectSearch"
@@ -295,29 +316,26 @@ const {
               @update:release-arch-filter="releaseArchFilter = $event"
             />
 
+            <DiagnosticsPage
+              v-if="activeSection === 'diagnostics'"
+              :diagnostics="diagnostics"
+              :activity-log="activityLog"
+              :diagnostics-loading="diagnosticsLoading"
+              :busy="!!busyAction"
+              @refresh-diagnostics="loadDiagnostics"
+              @clear-release-cache="clearReleaseCache"
+            />
+
             <SettingsPage
               v-if="activeSection === 'settings'"
               v-model:selected-locale="selectedLocale"
               v-model:selected-theme="selectedTheme"
               :settings-form="settingsForm"
               :busy="!!busyAction"
-              :workspace-scan="workspaceScan"
-              :workspace-scan-loaded="workspaceScanState.loaded"
-              :workspace-scan-loading="workspaceScanState.loading"
-              :workspace-scan-action="workspaceScanState.action"
-              :workspace-scan-error="workspaceScanState.error"
-              :diagnostics="diagnostics"
-              :activity-log="activityLog"
-              :diagnostics-loading="diagnosticsLoading"
               @browse="browsePath"
               @save="saveSettings"
               @restore-defaults="restoreDefaultSettings"
               @open-security="securityDialogOpen = true"
-              @scan-workspace="scanWorkspace"
-              @refresh-diagnostics="loadDiagnostics"
-              @clear-release-cache="clearReleaseCache"
-              @register-discovered-editor="registerDiscoveredEditor"
-              @register-discovered-project="registerDiscoveredProject"
             />
           </template>
         </div>

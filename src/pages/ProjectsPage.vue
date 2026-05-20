@@ -324,7 +324,7 @@ function openProjectSettings(path: string) {
             <span class="text-sm font-bold text-base-content/80">{{ t("projectPage.pathCurrent") }}</span>
             <input class="input input-bordered border-base-content/10 bg-base-200" :value="activeProject.path" disabled />
           </label>
-          <label class="grid gap-2">
+          <div class="grid gap-2">
             <span class="text-sm font-bold text-base-content/80">{{ t("projectPage.newDestinationPath") }}</span>
             <PathField
               :model-value="moveDestinationPath"
@@ -334,7 +334,7 @@ function openProjectSettings(path: string) {
               @update:model-value="emit('update:moveDestinationPath', $event)"
               @browse="emit('browse', 'moveProjectDestination')"
             />
-          </label>
+          </div>
           <button class="btn btn-primary w-fit" :disabled="!!busyAction || !editors.length || moveDestinationPath === activeProject.path">
             {{ t("projectPage.moveProject") }}
           </button>
@@ -489,8 +489,8 @@ function openProjectSettings(path: string) {
               <h3 class="font-black">{{ t("projects.newProject") }}</h3>
               <span class="text-xs text-base-content/50">{{ t("common.create") }}</span>
             </div>
-            <fieldset class="grid gap-3" :disabled="!editors.length">
-              <input v-model="newProject.name" class="input input-bordered border-base-content/10 bg-base-200" required :placeholder="t('projects.projectName')" />
+            <fieldset class="flex flex-col gap-3" :disabled="!editors.length">
+              <input v-model="newProject.name" class="input input-bordered w-full border-base-content/10 bg-base-200" required :placeholder="t('projects.projectName')" />
               <PathField
                 v-model="newProject.rootPath"
                 required
@@ -498,13 +498,13 @@ function openProjectSettings(path: string) {
                 :button-label="t('common.browse')"
                 @browse="emit('browse', 'newProjectRoot')"
               />
-              <select v-model="newProject.editorId" class="select cursor-pointer select-bordered border-base-content/10 bg-base-200 disabled:cursor-not-allowed disabled:opacity-60" :disabled="!editors.length">
+              <select v-model="newProject.editorId" class="select w-full cursor-pointer select-bordered border-base-content/10 bg-base-200 disabled:cursor-not-allowed disabled:opacity-60" :disabled="!editors.length">
                 <option value="">{{ editors.length ? t("projects.useDefaultEditor") : t("projects.noEditorSelect") }}</option>
                 <option v-for="editor in editors" :key="editor.id" :value="editor.id">
                   {{ editor.name }} {{ editor.version }}
                 </option>
               </select>
-              <button class="btn btn-primary" :disabled="!!busyAction || !editors.length">{{ t("projects.createProject") }}</button>
+              <button class="btn btn-primary w-full" :disabled="!!busyAction || !editors.length">{{ t("projects.createProject") }}</button>
             </fieldset>
           </form>
 
@@ -513,8 +513,8 @@ function openProjectSettings(path: string) {
               <h3 class="font-black">{{ t("projects.importProject") }}</h3>
               <span class="text-xs text-base-content/50">{{ t("common.import") }}</span>
             </div>
-            <fieldset class="grid gap-3" :disabled="!editors.length">
-              <input v-model="importProjectForm.name" class="input input-bordered border-base-content/10 bg-base-200" :placeholder="t('projects.optionalName')" />
+            <fieldset class="flex flex-col gap-3" :disabled="!editors.length">
+              <input v-model="importProjectForm.name" class="input input-bordered w-full border-base-content/10 bg-base-200" :placeholder="t('projects.optionalName')" />
               <PathField
                 v-model="importProjectForm.path"
                 required
@@ -522,13 +522,13 @@ function openProjectSettings(path: string) {
                 :button-label="t('common.browse')"
                 @browse="emit('browse', 'importProjectPath')"
               />
-              <select v-model="importProjectForm.editorId" class="select cursor-pointer select-bordered border-base-content/10 bg-base-200 disabled:cursor-not-allowed disabled:opacity-60" :disabled="!editors.length">
+              <select v-model="importProjectForm.editorId" class="select w-full cursor-pointer select-bordered border-base-content/10 bg-base-200 disabled:cursor-not-allowed disabled:opacity-60" :disabled="!editors.length">
                 <option value="">{{ editors.length ? t("projects.useDefaultEditor") : t("projects.noEditorSelect") }}</option>
                 <option v-for="editor in editors" :key="editor.id" :value="editor.id">
                   {{ editor.name }} {{ editor.version }}
                 </option>
               </select>
-              <button class="btn border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :disabled="!!busyAction || !editors.length">{{ t("common.import") }}</button>
+              <button class="btn w-full border-base-content/10 bg-base-content/5 text-base-content hover:bg-base-content/10" :disabled="!!busyAction || !editors.length">{{ t("common.import") }}</button>
             </fieldset>
           </form>
         </div>

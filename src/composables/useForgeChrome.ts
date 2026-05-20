@@ -58,7 +58,7 @@ export function useForgeChrome({ locale, busyAction, error, status, t, navigateS
   }
 
   function handleMenuAction(action: string) {
-    if (action === "projects" || action === "editors" || action === "settings") {
+    if (action === "dashboard" || action === "projects" || action === "editors" || action === "diagnostics" || action === "settings") {
       navigateSection(action);
       return;
     }

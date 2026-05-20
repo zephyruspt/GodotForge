@@ -54,6 +54,8 @@
     "yes": "Sim"
   },
   "nav": {
+    "dashboard": "Dashboard",
+    "diagnostics": "Diagnóstico",
     "editors": "Editores",
     "library": "Biblioteca",
     "projects": "Projetos",
@@ -61,6 +63,10 @@
     "settings": "Configurações"
   },
   "sections": {
+    "dashboardDescription": "Visão geral do workspace, status rápidos e itens locais encontrados.",
+    "dashboardTitle": "Dashboard",
+    "diagnosticsDescription": "Checagens do sistema, cache de releases e logs de atividade.",
+    "diagnosticsTitle": "Diagnóstico",
     "editorsDescription": "Versões instaladas, paths e editor padrão.",
     "editorsTitle": "Instalações da Engine",
     "projectsDescription": "Biblioteca local, criação de projetos e abertura rápida.",
@@ -69,6 +75,15 @@
     "releasesTitle": "Gerenciador de Releases",
     "settingsDescription": "Diretórios usados pelo hub para instalações e projetos.",
     "settingsTitle": "Configurações do Workspace"
+  },
+  "dashboard": {
+    "manageEditors": "Gerir editores",
+    "notConfigured": "Não configurado",
+    "openProjects": "Abrir projetos",
+    "scanPendingBody": "Rode uma verificação do workspace para encontrar editores e projetos locais ainda não registrados.",
+    "scanPendingTitle": "Nenhuma verificação ainda",
+    "workspace": "Workspace",
+    "workspaceSettings": "Configurações do workspace"
   },
   "onboarding": {
     "back": "Voltar",
