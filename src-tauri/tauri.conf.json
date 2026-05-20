@@ -23,13 +23,49 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["appimage", "rpm", "deb"],
+    "license": "Apache-2.0",
+    "licenseFile": "../LICENSE",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "linux": {
+      "appimage": {
+        "files": {
+          "/usr/share/doc/godot-forge/README.md": "../README.md",
+          "/usr/share/doc/godot-forge/LICENSE": "../LICENSE",
+          "/usr/share/doc/godot-forge/LICENSE-BRAND-ASSETS.md": "../LICENSE-BRAND-ASSETS.md",
+          "/usr/share/doc/godot-forge/NOTICE": "../NOTICE",
+          "/usr/share/doc/godot-forge/PRIVACY.md": "../PRIVACY.md",
+          "/usr/share/doc/godot-forge/SECURITY.md": "../SECURITY.md"
+        }
+      },
+      "deb": {
+        "files": {
+          "/usr/share/doc/godot-forge/README.md": "../README.md",
+          "/usr/share/doc/godot-forge/LICENSE": "../LICENSE",
+          "/usr/share/doc/godot-forge/LICENSE-BRAND-ASSETS.md": "../LICENSE-BRAND-ASSETS.md",
+          "/usr/share/doc/godot-forge/NOTICE": "../NOTICE",
+          "/usr/share/doc/godot-forge/PRIVACY.md": "../PRIVACY.md",
+          "/usr/share/doc/godot-forge/SECURITY.md": "../SECURITY.md"
+        }
+      },
+      "rpm": {
+        "epoch": 0,
+        "release": "1",
+        "files": {
+          "/usr/share/doc/godot-forge/README.md": "../README.md",
+          "/usr/share/doc/godot-forge/LICENSE": "../LICENSE",
+          "/usr/share/doc/godot-forge/LICENSE-BRAND-ASSETS.md": "../LICENSE-BRAND-ASSETS.md",
+          "/usr/share/doc/godot-forge/NOTICE": "../NOTICE",
+          "/usr/share/doc/godot-forge/PRIVACY.md": "../PRIVACY.md",
+          "/usr/share/doc/godot-forge/SECURITY.md": "../SECURITY.md"
+        }
+      }
+    }
   }
 }

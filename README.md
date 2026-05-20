@@ -88,6 +88,8 @@ Build desktop bundles:
 npm run tauri build
 ```
 
+The Linux bundle configuration currently targets AppImage, RPM, and Debian packages.
+
 ## Local Data
 
 Godot Forge stores local hub state in the user configuration directory.
