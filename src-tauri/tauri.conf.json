@@ -46,7 +46,11 @@
           "/usr/share/icons/hicolor/32x32/apps/pt.zephyrus.godot-forge.png": "icons/32x32.png",
           "/usr/share/icons/hicolor/128x128/apps/pt.zephyrus.godot-forge.png": "icons/128x128.png",
           "/usr/share/icons/hicolor/256x256/apps/pt.zephyrus.godot-forge.png": "icons/128x128@2x.png",
-          "/usr/share/icons/hicolor/512x512/apps/pt.zephyrus.godot-forge.png": "icons/icon.png"
+          "/usr/share/icons/hicolor/512x512/apps/pt.zephyrus.godot-forge.png": "icons/icon.png",
+          "/usr/share/icons/hicolor/32x32/apps/godotforge.png": "icons/32x32.png",
+          "/usr/share/icons/hicolor/128x128/apps/godotforge.png": "icons/128x128.png",
+          "/usr/share/icons/hicolor/256x256/apps/godotforge.png": "icons/128x128@2x.png",
+          "/usr/share/icons/hicolor/512x512/apps/godotforge.png": "icons/icon.png"
         }
       },
       "deb": {
@@ -63,7 +67,11 @@
           "/usr/share/icons/hicolor/32x32/apps/pt.zephyrus.godot-forge.png": "icons/32x32.png",
           "/usr/share/icons/hicolor/128x128/apps/pt.zephyrus.godot-forge.png": "icons/128x128.png",
           "/usr/share/icons/hicolor/256x256/apps/pt.zephyrus.godot-forge.png": "icons/128x128@2x.png",
-          "/usr/share/icons/hicolor/512x512/apps/pt.zephyrus.godot-forge.png": "icons/icon.png"
+          "/usr/share/icons/hicolor/512x512/apps/pt.zephyrus.godot-forge.png": "icons/icon.png",
+          "/usr/share/icons/hicolor/32x32/apps/godotforge.png": "icons/32x32.png",
+          "/usr/share/icons/hicolor/128x128/apps/godotforge.png": "icons/128x128.png",
+          "/usr/share/icons/hicolor/256x256/apps/godotforge.png": "icons/128x128@2x.png",
+          "/usr/share/icons/hicolor/512x512/apps/godotforge.png": "icons/icon.png"
         }
       },
       "rpm": {
@@ -82,7 +90,11 @@
           "/usr/share/icons/hicolor/32x32/apps/pt.zephyrus.godot-forge.png": "icons/32x32.png",
           "/usr/share/icons/hicolor/128x128/apps/pt.zephyrus.godot-forge.png": "icons/128x128.png",
           "/usr/share/icons/hicolor/256x256/apps/pt.zephyrus.godot-forge.png": "icons/128x128@2x.png",
-          "/usr/share/icons/hicolor/512x512/apps/pt.zephyrus.godot-forge.png": "icons/icon.png"
+          "/usr/share/icons/hicolor/512x512/apps/pt.zephyrus.godot-forge.png": "icons/icon.png",
+          "/usr/share/icons/hicolor/32x32/apps/godotforge.png": "icons/32x32.png",
+          "/usr/share/icons/hicolor/128x128/apps/godotforge.png": "icons/128x128.png",
+          "/usr/share/icons/hicolor/256x256/apps/godotforge.png": "icons/128x128@2x.png",
+          "/usr/share/icons/hicolor/512x512/apps/godotforge.png": "icons/icon.png"
         }
       }
     }
