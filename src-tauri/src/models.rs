@@ -82,6 +82,24 @@ pub(crate) struct ReleaseCache {
     pub(crate) releases: Vec<GodotRelease>,
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReleaseCacheInfo {
+    pub(crate) exists: bool,
+    pub(crate) path: String,
+    pub(crate) fetched_at: Option<u64>,
+    pub(crate) age_seconds: Option<u64>,
+    pub(crate) release_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ActivityLogEntry {
+    pub(crate) timestamp: u64,
+    pub(crate) level: String,
+    pub(crate) message: String,
+}
+
 fn default_release_page() -> usize {
     1
 }
@@ -92,6 +110,22 @@ pub(crate) struct SystemProfile {
     pub(crate) os: String,
     pub(crate) arch: String,
     pub(crate) godot_platform: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticCheck {
+    pub(crate) key: String,
+    pub(crate) label: String,
+    pub(crate) ok: bool,
+    pub(crate) detail: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkspaceDiagnostics {
+    pub(crate) checks: Vec<DiagnosticCheck>,
+    pub(crate) cache: ReleaseCacheInfo,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

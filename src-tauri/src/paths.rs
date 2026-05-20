@@ -77,21 +77,26 @@ pub(crate) fn default_project_path() -> PathBuf {
 }
 
 pub(crate) fn config_path() -> PathBuf {
+    config_dir().join("hub-state.json")
+}
+
+pub(crate) fn config_dir() -> PathBuf {
     let base = env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| home_dir().join(".config"));
 
-    base.join("godot-forge").join("hub-state.json")
+    base.join("godot-forge")
+}
+
+pub(crate) fn activity_log_path() -> PathBuf {
+    config_dir().join("activity-log.json")
 }
 
 pub(crate) fn release_cache_path(repositories: &[String], limit: usize, page: usize) -> PathBuf {
-    let base = env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".config"));
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     repositories.hash(&mut hasher);
 
-    base.join("godot-forge").join(format!(
+    config_dir().join(format!(
         "release-cache-{limit}-{page}-{}.json",
         hasher.finish()
     ))

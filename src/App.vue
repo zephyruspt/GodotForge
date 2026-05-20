@@ -15,6 +15,7 @@ import EditorsPage from "./pages/EditorsPage.vue";
 import ProjectsPage from "./pages/ProjectsPage.vue";
 import SettingsPage from "./pages/SettingsPage.vue";
 import type {
+  ActivityLogEntry,
   DeleteTarget,
   DiscoveredEditor,
   DiscoveredProject,
@@ -30,6 +31,7 @@ import type {
   Section,
   SystemProfile,
   ThemeName,
+  WorkspaceDiagnostics,
   WorkspaceScan,
 } from "./types";
 
@@ -85,6 +87,9 @@ const workspaceScanState = reactive({
   action: "",
   error: "",
 });
+const diagnostics = ref<WorkspaceDiagnostics | null>(null);
+const activityLog = ref<ActivityLogEntry[]>([]);
+const diagnosticsLoading = ref(false);
 const releasesLoaded = ref(false);
 const releaseFiltersOpen = ref(false);
 const releasePage = ref(1);
@@ -284,6 +289,41 @@ async function scanWorkspace() {
     workspaceScanState.error = caught instanceof Error ? caught.message : String(caught);
   } finally {
     workspaceScanState.loading = false;
+  }
+}
+
+async function loadDiagnostics() {
+  diagnosticsLoading.value = true;
+
+  try {
+    const [nextDiagnostics, nextActivityLog] = await Promise.all([
+      invoke<WorkspaceDiagnostics>("get_workspace_diagnostics"),
+      invoke<ActivityLogEntry[]>("read_activity_log"),
+    ]);
+    diagnostics.value = nextDiagnostics;
+    activityLog.value = nextActivityLog;
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    diagnosticsLoading.value = false;
+  }
+}
+
+async function clearReleaseCache() {
+  busyAction.value = t("settings.clearReleaseCache");
+  error.value = "";
+
+  try {
+    await invoke("clear_release_cache");
+    releasesLoaded.value = false;
+    releases.value = [];
+    releasePage.value = 1;
+    await loadDiagnostics();
+    await loadReleases();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    busyAction.value = "";
   }
 }
 
@@ -546,6 +586,7 @@ async function loadReleases() {
     releasePage.value = 1;
     releasesLoaded.value = true;
     status.value = t("status.releasesLoaded");
+    loadDiagnostics();
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught);
   } finally {
@@ -990,7 +1031,7 @@ onMounted(async () => {
   }
   await Promise.all([loadSystemProfile(), loadAppMetadata()]);
   await Promise.all([loadState(), loadReleases()]);
-  await scanWorkspace();
+  await Promise.all([scanWorkspace(), loadDiagnostics()]);
 });
 
 onUnmounted(() => {
@@ -1180,11 +1221,16 @@ onUnmounted(() => {
               :workspace-scan-loading="workspaceScanState.loading"
               :workspace-scan-action="workspaceScanState.action"
               :workspace-scan-error="workspaceScanState.error"
+              :diagnostics="diagnostics"
+              :activity-log="activityLog"
+              :diagnostics-loading="diagnosticsLoading"
               @browse="browsePath"
               @save="saveSettings"
               @restore-defaults="restoreDefaultSettings"
               @open-security="securityDialogOpen = true"
               @scan-workspace="scanWorkspace"
+              @refresh-diagnostics="loadDiagnostics"
+              @clear-release-cache="clearReleaseCache"
               @register-discovered-editor="registerDiscoveredEditor"
               @register-discovered-project="registerDiscoveredProject"
             />

@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf, process::Command};
 
-use crate::{models::*, read_state};
+use crate::{models::*, state::read_state};
 
 fn command_text(mut command: Command) -> Result<String, String> {
     let output = command.output().map_err(|error| error.to_string())?;

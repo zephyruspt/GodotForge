@@ -54,6 +54,32 @@ export type WorkspaceScan = {
   projects: DiscoveredProject[];
 };
 
+export type ReleaseCacheInfo = {
+  exists: boolean;
+  path: string;
+  fetchedAt?: number | null;
+  ageSeconds?: number | null;
+  releaseCount: number;
+};
+
+export type DiagnosticCheck = {
+  key: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+};
+
+export type WorkspaceDiagnostics = {
+  checks: DiagnosticCheck[];
+  cache: ReleaseCacheInfo;
+};
+
+export type ActivityLogEntry = {
+  timestamp: number;
+  level: string;
+  message: string;
+};
+
 export type GodotReleaseAsset = {
   id: number;
   name: string;
