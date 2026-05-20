@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "enableGTKAppId": true,
     "windows": [
       {
         "title": "Godot Forge",
@@ -45,6 +46,9 @@
         }
       },
       "deb": {
+        "desktopTemplate": "desktop/godot-forge.desktop.hbs",
+        "postInstallScript": "scripts/linux-refresh-desktop-cache.sh",
+        "postRemoveScript": "scripts/linux-refresh-desktop-cache.sh",
         "files": {
           "/usr/share/doc/godot-forge/README.md": "../README.md",
           "/usr/share/doc/godot-forge/LICENSE": "../LICENSE",
@@ -55,7 +59,10 @@
         }
       },
       "rpm": {
+        "desktopTemplate": "desktop/godot-forge.desktop.hbs",
         "epoch": 0,
+        "postInstallScript": "scripts/linux-refresh-desktop-cache.sh",
+        "postRemoveScript": "scripts/linux-refresh-desktop-cache.sh",
         "release": "1",
         "files": {
           "/usr/share/doc/godot-forge/README.md": "../README.md",
