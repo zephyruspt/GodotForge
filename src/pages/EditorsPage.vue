@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import type { GodotEditor, GodotRelease, GodotReleaseAsset, ReleaseFlavor } from "../types";
+import type { DiscoveredEditor, GodotEditor, GodotRelease, GodotReleaseAsset, ReleaseFlavor } from "../types";
 
 type ReleaseChannelFilter = "all" | "stable" | "preview";
 type ReleaseVariantFilter = "all" | ReleaseFlavor;
@@ -9,6 +9,11 @@ type ReleaseArchFilter = "x86_64" | "arm64";
 
 defineProps<{
   editors: GodotEditor[];
+  discoveredEditors: DiscoveredEditor[];
+  workspaceScanLoaded: boolean;
+  workspaceScanLoading: boolean;
+  workspaceScanAction: string;
+  workspaceScanError: string;
   releases: GodotRelease[];
   filteredReleases: GodotRelease[];
   releaseRepositoryOptions: string[];
@@ -46,6 +51,8 @@ defineProps<{
 const emit = defineEmits<{
   setDefaultEditor: [editorId: string];
   removeEditor: [editorId: string];
+  scanWorkspace: [];
+  registerDiscoveredEditor: [editor: DiscoveredEditor];
   clearReleaseFilters: [];
   loadMoreReleases: [];
   downloadEditor: [release: GodotRelease, asset: GodotReleaseAsset];
@@ -90,6 +97,49 @@ const { t } = useI18n();
           <button class="btn btn-sm btn-error btn-outline" :disabled="!!busyAction" @click="emit('removeEditor', editor.id)">{{ t("common.remove") }}</button>
         </div>
       </article>
+    </div>
+  </section>
+
+  <section v-if="workspaceScanLoading || workspaceScanError || discoveredEditors.length" class="rounded-xl border border-base-content/10 bg-base-100 p-4">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <p class="text-xs font-black uppercase text-primary">{{ t("settings.workspaceScan") }}</p>
+        <h2 class="mt-1 text-lg font-black">{{ t("settings.discoveredEditors") }}</h2>
+        <p class="mt-1 text-sm text-base-content/55">{{ t("settings.workspaceScanBody") }}</p>
+      </div>
+      <button class="btn btn-sm btn-primary shrink-0" type="button" :disabled="workspaceScanLoading || !!busyAction" @click="emit('scanWorkspace')">
+        <span v-if="workspaceScanLoading" class="loading loading-spinner loading-xs" />
+        {{ t("settings.scanWorkspace") }}
+      </button>
+    </div>
+
+    <p v-if="workspaceScanError" class="mt-3 rounded-md border border-error/20 bg-error/10 px-3 py-2 text-sm text-error">
+      {{ workspaceScanError }}
+    </p>
+
+    <div v-if="discoveredEditors.length" class="mt-4 grid gap-2 lg:grid-cols-2 2xl:grid-cols-3">
+      <div v-for="editor in discoveredEditors" :key="editor.installPath + editor.executablePath" class="rounded-lg border border-base-content/10 bg-base-300/45 p-3">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <p class="truncate text-sm font-black">{{ editor.name }} {{ editor.version }}</p>
+            <p class="mt-1 truncate text-xs text-base-content/50">{{ editor.installPath }}</p>
+            <p v-if="editor.reason" class="mt-2 text-xs text-warning">{{ editor.reason }}</p>
+          </div>
+          <span class="rounded px-2 py-1 text-[11px] font-black" :class="editor.corrupt ? 'bg-warning/20 text-warning' : editor.registered ? 'bg-success/15 text-success' : 'bg-primary/15 text-primary'">
+            {{ editor.corrupt ? t("settings.corrupt") : editor.registered ? t("settings.registered") : t("settings.newItem") }}
+          </span>
+        </div>
+        <button
+          v-if="!editor.registered && !editor.corrupt"
+          class="btn btn-xs btn-primary mt-3"
+          type="button"
+          :disabled="!!workspaceScanAction || !!busyAction"
+          @click="emit('registerDiscoveredEditor', editor)"
+        >
+          <span v-if="workspaceScanAction === editor.installPath" class="loading loading-spinner loading-xs" />
+          {{ t("settings.addToForge") }}
+        </button>
+      </div>
     </div>
   </section>
 

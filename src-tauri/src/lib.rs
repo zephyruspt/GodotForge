@@ -1,8 +1,16 @@
-use serde::{Deserialize, Serialize};
+mod filesystem;
+mod git;
+mod godot;
+mod models;
+mod paths;
+
+use filesystem::*;
+use git::*;
+use godot::*;
+use models::*;
+use paths::*;
 use std::{
     env, fs,
-    hash::{Hash, Hasher},
-    io,
     path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
@@ -14,289 +22,6 @@ use tauri::{
     menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},
     Emitter,
 };
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct GodotEditor {
-    id: String,
-    name: String,
-    version: String,
-    executable_path: String,
-    install_path: String,
-    architecture: String,
-    is_default: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct GodotProject {
-    id: String,
-    name: String,
-    path: String,
-    editor_id: Option<String>,
-    favorite: bool,
-    last_opened: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct HubSettings {
-    default_install_path: String,
-    default_project_path: String,
-    #[serde(default)]
-    release_repositories: Vec<String>,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    github_token: String,
-    #[serde(default, skip_serializing)]
-    release_repository: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct HubState {
-    editors: Vec<GodotEditor>,
-    projects: Vec<GodotProject>,
-    settings: HubSettings,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct GodotReleaseAsset {
-    id: u64,
-    name: String,
-    size: u64,
-    #[serde(alias = "browser_download_url")]
-    browser_download_url: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct GodotRelease {
-    id: u64,
-    name: Option<String>,
-    #[serde(alias = "tag_name")]
-    tag_name: String,
-    prerelease: bool,
-    #[serde(alias = "published_at")]
-    published_at: Option<String>,
-    #[serde(alias = "html_url")]
-    html_url: String,
-    assets: Vec<GodotReleaseAsset>,
-    #[serde(default)]
-    source_repository: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ReleaseCache {
-    repositories: Vec<String>,
-    limit: usize,
-    #[serde(default = "default_release_page")]
-    page: usize,
-    fetched_at: u64,
-    releases: Vec<GodotRelease>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct SystemProfile {
-    os: String,
-    arch: String,
-    godot_platform: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct GitStatus {
-    available: bool,
-    is_repo: bool,
-    branch: Option<String>,
-    remote: Option<String>,
-    changed_files: usize,
-    untracked_files: usize,
-    summary: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct GitLogEntry {
-    hash: String,
-    author: String,
-    relative_date: String,
-    subject: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct GitBranch {
-    name: String,
-    current: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ImportProjectRequest {
-    name: Option<String>,
-    path: String,
-    editor_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CreateProjectRequest {
-    name: String,
-    root_path: String,
-    editor_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UpdateSettingsRequest {
-    default_install_path: String,
-    default_project_path: String,
-    release_repositories: Vec<String>,
-    github_token: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DownloadEditorRequest {
-    release_tag: String,
-    release_repository: Option<String>,
-    asset_name: String,
-    asset_url: String,
-    install_path: Option<String>,
-    make_default: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct MoveProjectRequest {
-    project_id: String,
-    destination_path: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GitBranchRequest {
-    project_id: String,
-    branch_name: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GitRemoteRequest {
-    project_id: String,
-    remote_url: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LegalDocument {
-    title: String,
-    body: String,
-}
-
-fn home_dir() -> PathBuf {
-    env::var_os("HOME")
-        .or_else(|| env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-}
-
-fn documents_dir() -> PathBuf {
-    #[cfg(target_os = "linux")]
-    {
-        if let Some(path) = xdg_documents_dir() {
-            return path;
-        }
-    }
-
-    env::var_os("USERPROFILE")
-        .map(|path| PathBuf::from(path).join("Documents"))
-        .unwrap_or_else(|| home_dir().join("Documents"))
-}
-
-#[cfg(target_os = "linux")]
-fn xdg_documents_dir() -> Option<PathBuf> {
-    let config_home = env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".config"));
-    let config = fs::read_to_string(config_home.join("user-dirs.dirs")).ok()?;
-
-    config.lines().find_map(|line| {
-        let value = line.strip_prefix("XDG_DOCUMENTS_DIR=")?;
-        let value = value.trim().trim_matches('"');
-        let expanded = value
-            .strip_prefix("$HOME/")
-            .map(|path| home_dir().join(path))
-            .unwrap_or_else(|| PathBuf::from(value));
-
-        Some(expanded)
-    })
-}
-
-fn default_install_path() -> PathBuf {
-    #[cfg(target_os = "linux")]
-    {
-        return home_dir().join(".Godot").join("Editors");
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        return home_dir()
-            .join("Applications")
-            .join("GodotForge")
-            .join("Editors");
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        return env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .or_else(|| env::var_os("APPDATA").map(PathBuf::from))
-            .unwrap_or_else(|| home_dir().join("AppData").join("Local"))
-            .join("GodotForge")
-            .join("Editors");
-    }
-
-    #[allow(unreachable_code)]
-    home_dir().join(".godot-forge").join("editors")
-}
-
-fn default_project_path() -> PathBuf {
-    documents_dir().join("GodotForge").join("Projects")
-}
-
-fn config_path() -> PathBuf {
-    let base = env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".config"));
-
-    base.join("godot-forge").join("hub-state.json")
-}
-
-fn release_cache_path(repositories: &[String], limit: usize, page: usize) -> PathBuf {
-    let base = env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".config"));
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    repositories.hash(&mut hasher);
-
-    base.join("godot-forge").join(format!(
-        "release-cache-{limit}-{page}-{}.json",
-        hasher.finish()
-    ))
-}
-
-fn now_id(prefix: &str) -> String {
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or_default();
-
-    format!("{prefix}-{millis}")
-}
 
 fn default_state() -> HubState {
     HubState {
@@ -315,10 +40,6 @@ fn default_state() -> HubState {
 const OFFICIAL_RELEASE_REPOSITORY: &str = "godotengine/godot";
 const RELEASE_CACHE_TTL_SECONDS: u64 = 60 * 60 * 6;
 
-fn default_release_page() -> usize {
-    1
-}
-
 fn current_unix_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -326,7 +47,7 @@ fn current_unix_seconds() -> u64 {
         .unwrap_or_default()
 }
 
-fn read_state() -> Result<HubState, String> {
+pub(crate) fn read_state() -> Result<HubState, String> {
     let path = config_path();
 
     if !path.exists() {
@@ -422,14 +143,6 @@ fn write_release_cache(
     fs::write(path, data).map_err(|error| error.to_string())
 }
 
-fn project_name_from_path(path: &Path) -> String {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or("Godot Project")
-        .to_string()
-}
-
 fn http_client() -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
         .user_agent("GodotForge/0.1")
@@ -452,225 +165,6 @@ fn github_release_error(error: reqwest::Error) -> String {
     }
 
     error.to_string()
-}
-
-fn normalize_release_repository(value: &str) -> Result<String, String> {
-    let trimmed = value.trim().trim_end_matches('/').trim_end_matches(".git");
-    let repository = trimmed
-        .strip_prefix("git@github.com:")
-        .or_else(|| trimmed.strip_prefix("ssh://git@github.com/"))
-        .or_else(|| trimmed.strip_prefix("https://github.com/"))
-        .or_else(|| trimmed.strip_prefix("http://github.com/"))
-        .unwrap_or(trimmed);
-    let parts = repository.split('/').collect::<Vec<_>>();
-
-    if parts.len() != 2 || parts.iter().any(|part| part.trim().is_empty()) {
-        return Err(
-            "Automatic release downloads currently support GitHub repositories. Use owner/name, a GitHub URL, or a GitHub SSH URL.".into(),
-        );
-    }
-
-    if parts.iter().any(|part| {
-        part.chars().any(|character| {
-            !(character.is_ascii_alphanumeric()
-                || character == '-'
-                || character == '_'
-                || character == '.')
-        })
-    }) {
-        return Err("The release repository contains invalid characters.".into());
-    }
-
-    Ok(format!("{}/{}", parts[0], parts[1]))
-}
-
-fn normalize_release_repositories(values: &[String]) -> Result<Vec<String>, String> {
-    let mut repositories = Vec::new();
-
-    for value in values {
-        if value.trim().is_empty() {
-            continue;
-        }
-
-        let repository = normalize_release_repository(value)?;
-        if repository == OFFICIAL_RELEASE_REPOSITORY {
-            continue;
-        }
-
-        if !repositories.contains(&repository) {
-            repositories.push(repository);
-        }
-    }
-
-    Ok(repositories)
-}
-
-fn safe_folder_name(value: &str) -> String {
-    value
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric()
-                || character == '-'
-                || character == '_'
-                || character == '.'
-            {
-                character
-            } else {
-                '-'
-            }
-        })
-        .collect()
-}
-
-fn ensure_editor_installed(state: &HubState) -> Result<(), String> {
-    if state.editors.is_empty() {
-        Err("Install a Godot editor before creating or editing projects.".into())
-    } else {
-        Ok(())
-    }
-}
-
-fn version_from_tag(tag: &str) -> String {
-    tag.trim_start_matches("godot-")
-        .trim_start_matches('v')
-        .to_string()
-}
-
-fn architecture_from_asset(name: &str) -> String {
-    let lower = name.to_lowercase();
-
-    if lower.contains("arm64") || lower.contains("aarch64") {
-        "arm64".into()
-    } else if lower.contains("x86_64") || lower.contains("64") {
-        "x86_64".into()
-    } else if lower.contains("x86_32") || lower.contains("32") {
-        "x86".into()
-    } else {
-        "unknown".into()
-    }
-}
-
-fn editor_name_from_asset(asset_name: &str) -> String {
-    let lower = asset_name.to_lowercase();
-    if lower.contains("mono") {
-        "Godot .NET".into()
-    } else {
-        "Godot".into()
-    }
-}
-
-fn extract_zip(zip_path: &Path, destination: &Path) -> Result<(), String> {
-    let file = fs::File::open(zip_path).map_err(|error| error.to_string())?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|error| error.to_string())?;
-
-    for index in 0..archive.len() {
-        let mut entry = archive.by_index(index).map_err(|error| error.to_string())?;
-        let entry_path = entry
-            .enclosed_name()
-            .ok_or_else(|| format!("Archive entry uses an unsafe path: {}", entry.name()))?;
-        let output_path = destination.join(entry_path);
-
-        if entry.is_dir() {
-            fs::create_dir_all(&output_path).map_err(|error| error.to_string())?;
-            continue;
-        }
-
-        if let Some(parent) = output_path.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-
-        let mut output_file = fs::File::create(&output_path).map_err(|error| error.to_string())?;
-        io::copy(&mut entry, &mut output_file).map_err(|error| error.to_string())?;
-    }
-
-    Ok(())
-}
-
-fn find_godot_executable(path: &Path) -> Option<PathBuf> {
-    let entries = fs::read_dir(path).ok()?;
-
-    for entry in entries.flatten() {
-        let entry_path = entry.path();
-        if entry_path.is_dir() {
-            if let Some(found) = find_godot_executable(&entry_path) {
-                return Some(found);
-            }
-            continue;
-        }
-
-        let file_name = entry_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default()
-            .to_lowercase();
-
-        let looks_like_godot = file_name.contains("godot")
-            && !file_name.ends_with(".zip")
-            && !file_name.ends_with(".txt")
-            && !file_name.ends_with(".md");
-
-        if looks_like_godot {
-            return Some(entry_path);
-        }
-    }
-
-    None
-}
-
-#[cfg(unix)]
-fn mark_executable(path: &Path) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let mut permissions = fs::metadata(path)
-        .map_err(|error| error.to_string())?
-        .permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(path, permissions).map_err(|error| error.to_string())
-}
-
-#[cfg(not(unix))]
-fn mark_executable(_path: &Path) -> Result<(), String> {
-    Ok(())
-}
-
-fn command_text(mut command: Command) -> Result<String, String> {
-    let output = command.output().map_err(|error| error.to_string())?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
-fn project_by_id(project_id: &str) -> Result<GodotProject, String> {
-    read_state()?
-        .projects
-        .into_iter()
-        .find(|project| project.id == project_id)
-        .ok_or_else(|| "Project not found.".to_string())
-}
-
-fn git_available() -> bool {
-    Command::new("git").arg("--version").output().is_ok()
-}
-
-fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
-    fs::create_dir_all(destination).map_err(|error| error.to_string())?;
-
-    for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let entry_path = entry.path();
-        let destination_path = destination.join(entry.file_name());
-
-        if entry_path.is_dir() {
-            copy_dir_recursive(&entry_path, &destination_path)?;
-        } else {
-            fs::copy(&entry_path, &destination_path).map_err(|error| error.to_string())?;
-        }
-    }
-
-    Ok(())
 }
 
 #[tauri::command]
@@ -714,312 +208,6 @@ fn detect_system_profile() -> SystemProfile {
         arch,
         godot_platform,
     }
-}
-
-#[tauri::command]
-fn get_project_git_status(project_id: String) -> Result<GitStatus, String> {
-    let project = project_by_id(&project_id)?;
-
-    if !git_available() {
-        return Ok(GitStatus {
-            available: false,
-            is_repo: false,
-            branch: None,
-            remote: None,
-            changed_files: 0,
-            untracked_files: 0,
-            summary: "Git was not found on this system.".into(),
-        });
-    }
-
-    let project_path = PathBuf::from(project.path);
-    let repo_check = Command::new("git")
-        .current_dir(&project_path)
-        .args(["rev-parse", "--is-inside-work-tree"])
-        .output()
-        .map_err(|error| error.to_string())?;
-
-    if !repo_check.status.success() {
-        return Ok(GitStatus {
-            available: true,
-            is_repo: false,
-            branch: None,
-            remote: None,
-            changed_files: 0,
-            untracked_files: 0,
-            summary: "This project is not a Git repository yet.".into(),
-        });
-    }
-
-    let branch = command_text({
-        let mut command = Command::new("git");
-        command
-            .current_dir(&project_path)
-            .args(["branch", "--show-current"]);
-        command
-    })
-    .ok()
-    .filter(|value| !value.is_empty());
-
-    let remote = command_text({
-        let mut command = Command::new("git");
-        command
-            .current_dir(&project_path)
-            .args(["remote", "get-url", "origin"]);
-        command
-    })
-    .ok()
-    .filter(|value| !value.is_empty());
-
-    let porcelain = command_text({
-        let mut command = Command::new("git");
-        command
-            .current_dir(&project_path)
-            .args(["status", "--porcelain"]);
-        command
-    })?;
-
-    let mut changed_files = 0;
-    let mut untracked_files = 0;
-
-    for line in porcelain.lines() {
-        if line.starts_with("??") {
-            untracked_files += 1;
-        } else if !line.trim().is_empty() {
-            changed_files += 1;
-        }
-    }
-
-    let summary = if changed_files == 0 && untracked_files == 0 {
-        "Working tree limpo.".into()
-    } else {
-        format!("{changed_files} changed, {untracked_files} untracked.")
-    };
-
-    Ok(GitStatus {
-        available: true,
-        is_repo: true,
-        branch,
-        remote,
-        changed_files,
-        untracked_files,
-        summary,
-    })
-}
-
-#[tauri::command]
-fn init_project_git(project_id: String) -> Result<GitStatus, String> {
-    let project = project_by_id(&project_id)?;
-
-    if !git_available() {
-        return Err("Git was not found on this system.".into());
-    }
-
-    let project_path = PathBuf::from(project.path);
-
-    command_text({
-        let mut command = Command::new("git");
-        command.current_dir(&project_path).arg("init");
-        command
-    })?;
-
-    let gitignore_path = project_path.join(".gitignore");
-    if !gitignore_path.exists() {
-        fs::write(
-            gitignore_path,
-            ".godot/\n.import/\nexport_presets.cfg\n*.translation\n*.tmp\n.mono/\n",
-        )
-        .map_err(|error| error.to_string())?;
-    }
-
-    get_project_git_status(project_id)
-}
-
-#[tauri::command]
-fn get_project_git_log(project_id: String) -> Result<Vec<GitLogEntry>, String> {
-    let project = project_by_id(&project_id)?;
-
-    if !git_available() {
-        return Ok(Vec::new());
-    }
-
-    let project_path = PathBuf::from(project.path);
-    let repo_check = Command::new("git")
-        .current_dir(&project_path)
-        .args(["rev-parse", "--is-inside-work-tree"])
-        .output()
-        .map_err(|error| error.to_string())?;
-
-    if !repo_check.status.success() {
-        return Ok(Vec::new());
-    }
-
-    let output = command_text({
-        let mut command = Command::new("git");
-        command.current_dir(&project_path).args([
-            "log",
-            "-12",
-            "--pretty=format:%h%x1f%an%x1f%ar%x1f%s",
-        ]);
-        command
-    })
-    .unwrap_or_default();
-
-    Ok(output
-        .lines()
-        .filter_map(|line| {
-            let parts: Vec<&str> = line.split('\u{1f}').collect();
-            if parts.len() != 4 {
-                return None;
-            }
-
-            Some(GitLogEntry {
-                hash: parts[0].to_string(),
-                author: parts[1].to_string(),
-                relative_date: parts[2].to_string(),
-                subject: parts[3].to_string(),
-            })
-        })
-        .collect())
-}
-
-#[tauri::command]
-fn list_project_git_branches(project_id: String) -> Result<Vec<GitBranch>, String> {
-    let project = project_by_id(&project_id)?;
-
-    if !git_available() {
-        return Err("Git was not found on this system.".into());
-    }
-
-    let project_path = PathBuf::from(project.path);
-    let output = command_text({
-        let mut command = Command::new("git");
-        command
-            .current_dir(&project_path)
-            .args(["branch", "--format=%(HEAD)%09%(refname:short)"]);
-        command
-    })?;
-
-    Ok(output
-        .lines()
-        .filter_map(|line| {
-            let (head, name) = line.split_once('\t')?;
-            let clean_name = name.trim();
-            if clean_name.is_empty() {
-                return None;
-            }
-
-            Some(GitBranch {
-                name: clean_name.to_string(),
-                current: head.trim() == "*",
-            })
-        })
-        .collect())
-}
-
-#[tauri::command]
-fn create_project_git_branch(request: GitBranchRequest) -> Result<GitStatus, String> {
-    let project = project_by_id(&request.project_id)?;
-    let branch_name = request.branch_name.trim();
-
-    if branch_name.is_empty() {
-        return Err("Enter a branch name.".into());
-    }
-
-    command_text({
-        let mut command = Command::new("git");
-        command
-            .current_dir(project.path)
-            .args(["checkout", "-b", branch_name]);
-        command
-    })?;
-
-    get_project_git_status(request.project_id)
-}
-
-#[tauri::command]
-fn checkout_project_git_branch(request: GitBranchRequest) -> Result<GitStatus, String> {
-    let project = project_by_id(&request.project_id)?;
-    let branch_name = request.branch_name.trim();
-
-    if branch_name.is_empty() {
-        return Err("Enter a branch name.".into());
-    }
-
-    command_text({
-        let mut command = Command::new("git");
-        command
-            .current_dir(project.path)
-            .args(["checkout", branch_name]);
-        command
-    })?;
-
-    get_project_git_status(request.project_id)
-}
-
-#[tauri::command]
-fn set_project_git_remote(request: GitRemoteRequest) -> Result<GitStatus, String> {
-    let project = project_by_id(&request.project_id)?;
-    let remote_url = request.remote_url.trim();
-
-    if remote_url.is_empty() {
-        return Err("Enter the remote URL.".into());
-    }
-
-    let project_path = PathBuf::from(project.path);
-    let has_origin = Command::new("git")
-        .current_dir(&project_path)
-        .args(["remote", "get-url", "origin"])
-        .output()
-        .map_err(|error| error.to_string())?
-        .status
-        .success();
-
-    if has_origin {
-        command_text({
-            let mut command = Command::new("git");
-            command
-                .current_dir(&project_path)
-                .args(["remote", "set-url", "origin", remote_url]);
-            command
-        })?;
-    } else {
-        command_text({
-            let mut command = Command::new("git");
-            command
-                .current_dir(&project_path)
-                .args(["remote", "add", "origin", remote_url]);
-            command
-        })?;
-    }
-
-    get_project_git_status(request.project_id)
-}
-
-#[tauri::command]
-fn push_project_git_branch(project_id: String) -> Result<GitStatus, String> {
-    let project = project_by_id(&project_id)?;
-    let project_path = PathBuf::from(project.path);
-    let status = get_project_git_status(project_id.clone())?;
-    let branch = status
-        .branch
-        .clone()
-        .filter(|branch| !branch.trim().is_empty())
-        .ok_or_else(|| "Could not detect the current branch.".to_string())?;
-
-    if status.remote.is_none() {
-        return Err("Configure o remote origin antes de fazer push.".into());
-    }
-
-    command_text({
-        let mut command = Command::new("git");
-        command
-            .current_dir(&project_path)
-            .args(["push", "-u", "origin", branch.as_str()]);
-        command
-    })?;
-
-    get_project_git_status(project_id)
 }
 
 #[tauri::command]
@@ -1168,9 +356,23 @@ fn download_godot_editor(request: DownloadEditorRequest) -> Result<HubState, Str
 #[tauri::command]
 fn save_settings(request: UpdateSettingsRequest) -> Result<HubState, String> {
     let mut state = read_state()?;
+    let old_install_root = PathBuf::from(&state.settings.default_install_path);
+    let old_project_root = PathBuf::from(&state.settings.default_project_path);
+    let new_install_root = PathBuf::from(request.default_install_path.trim());
+    let new_project_root = PathBuf::from(request.default_project_path.trim());
 
-    state.settings.default_install_path = request.default_install_path;
-    state.settings.default_project_path = request.default_project_path;
+    if request.migrate_existing_paths {
+        migrate_registered_paths(
+            &mut state,
+            &old_install_root,
+            &new_install_root,
+            &old_project_root,
+            &new_project_root,
+        )?;
+    }
+
+    state.settings.default_install_path = new_install_root.to_string_lossy().to_string();
+    state.settings.default_project_path = new_project_root.to_string_lossy().to_string();
     state.settings.release_repositories =
         normalize_release_repositories(&request.release_repositories)?;
     state.settings.github_token = request.github_token.trim().to_string();
@@ -1184,6 +386,168 @@ fn save_settings(request: UpdateSettingsRequest) -> Result<HubState, String> {
 fn restore_default_settings() -> Result<HubState, String> {
     let mut state = read_state()?;
     state.settings = default_state().settings;
+
+    write_state(&state)?;
+    Ok(state)
+}
+
+#[tauri::command]
+fn scan_workspace() -> Result<WorkspaceScan, String> {
+    let state = read_state()?;
+    let install_root = PathBuf::from(&state.settings.default_install_path);
+    let project_root = PathBuf::from(&state.settings.default_project_path);
+    let mut editors = Vec::new();
+    let mut projects = Vec::new();
+
+    if install_root.exists() {
+        let mut executables = Vec::new();
+        collect_godot_executables(&install_root, 5, &mut executables);
+        executables.sort();
+        executables.dedup();
+
+        for executable_path in executables {
+            let install_path = executable_path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| install_root.clone());
+            let executable_name = executable_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("Godot");
+
+            editors.push(DiscoveredEditor {
+                name: editor_name_from_asset(executable_name),
+                version: version_from_executable_path(&executable_path),
+                architecture: architecture_from_asset(executable_name),
+                executable_path: executable_path.to_string_lossy().to_string(),
+                install_path: install_path.to_string_lossy().to_string(),
+                registered: editor_is_registered(&state, &executable_path),
+                corrupt: false,
+                reason: None,
+            });
+        }
+
+        for directory in immediate_child_dirs(&install_root) {
+            let has_candidate = editors
+                .iter()
+                .any(|editor| PathBuf::from(&editor.install_path).starts_with(&directory));
+            if !has_candidate && find_godot_executable(&directory).is_none() {
+                editors.push(DiscoveredEditor {
+                    name: directory
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("Unknown editor")
+                        .to_string(),
+                    version: "unknown".into(),
+                    architecture: "unknown".into(),
+                    executable_path: String::new(),
+                    install_path: directory.to_string_lossy().to_string(),
+                    registered: false,
+                    corrupt: true,
+                    reason: Some(
+                        "No Godot executable was found in this installation folder.".into(),
+                    ),
+                });
+            }
+        }
+    }
+
+    if project_root.exists() {
+        let mut project_dirs = Vec::new();
+        collect_project_dirs(&project_root, 6, &mut project_dirs);
+        project_dirs.sort();
+        project_dirs.dedup();
+
+        for project_path in &project_dirs {
+            projects.push(DiscoveredProject {
+                name: project_name_from_path(project_path),
+                path: project_path.to_string_lossy().to_string(),
+                registered: project_is_registered(&state, project_path),
+                corrupt: false,
+                reason: None,
+            });
+        }
+
+        for directory in immediate_child_dirs(&project_root) {
+            let contains_project = project_dirs
+                .iter()
+                .any(|project| project.starts_with(&directory));
+            if !contains_project {
+                projects.push(DiscoveredProject {
+                    name: project_name_from_path(&directory),
+                    path: directory.to_string_lossy().to_string(),
+                    registered: false,
+                    corrupt: true,
+                    reason: Some("No project.godot file was found in this project folder.".into()),
+                });
+            }
+        }
+    }
+
+    Ok(WorkspaceScan { editors, projects })
+}
+
+#[tauri::command]
+fn register_discovered_editor(
+    request: RegisterDiscoveredEditorRequest,
+) -> Result<HubState, String> {
+    let mut state = read_state()?;
+    let executable = PathBuf::from(request.executable_path.trim());
+    let install_path = PathBuf::from(request.install_path.trim());
+
+    if !executable.exists() {
+        return Err("The discovered editor executable does not exist.".into());
+    }
+
+    if !install_path.exists() {
+        return Err("The discovered editor installation folder does not exist.".into());
+    }
+
+    if editor_is_registered(&state, &executable) {
+        return Ok(state);
+    }
+
+    mark_executable(&executable)?;
+
+    let should_make_default = state.editors.is_empty();
+    state.editors.push(GodotEditor {
+        id: now_id("editor"),
+        name: request.name.trim().to_string(),
+        version: request.version.trim().to_string(),
+        executable_path: executable.to_string_lossy().to_string(),
+        install_path: install_path.to_string_lossy().to_string(),
+        architecture: request.architecture.trim().to_string(),
+        is_default: should_make_default,
+    });
+
+    write_state(&state)?;
+    Ok(state)
+}
+
+#[tauri::command]
+fn register_discovered_project(
+    request: RegisterDiscoveredProjectRequest,
+) -> Result<HubState, String> {
+    let mut state = read_state()?;
+    ensure_editor_installed(&state)?;
+    let path = PathBuf::from(request.path.trim());
+
+    if !path.join("project.godot").exists() {
+        return Err("Could not find project.godot at this path.".into());
+    }
+
+    if project_is_registered(&state, &path) {
+        return Ok(state);
+    }
+
+    state.projects.push(GodotProject {
+        id: now_id("project"),
+        name: request.name.trim().to_string(),
+        path: path.to_string_lossy().to_string(),
+        editor_id: None,
+        favorite: false,
+        last_opened: None,
+    });
 
     write_state(&state)?;
     Ok(state)
@@ -1596,6 +960,9 @@ pub fn run() {
             download_godot_editor,
             save_settings,
             restore_default_settings,
+            scan_workspace,
+            register_discovered_editor,
+            register_discovered_project,
             remove_editor,
             set_default_editor,
             import_project,

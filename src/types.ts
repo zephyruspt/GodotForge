@@ -30,6 +30,30 @@ export type HubState = {
   };
 };
 
+export type DiscoveredEditor = {
+  name: string;
+  version: string;
+  architecture: string;
+  executablePath: string;
+  installPath: string;
+  registered: boolean;
+  corrupt: boolean;
+  reason?: string | null;
+};
+
+export type DiscoveredProject = {
+  name: string;
+  path: string;
+  registered: boolean;
+  corrupt: boolean;
+  reason?: string | null;
+};
+
+export type WorkspaceScan = {
+  editors: DiscoveredEditor[];
+  projects: DiscoveredProject[];
+};
+
 export type GodotReleaseAsset = {
   id: number;
   name: string;
