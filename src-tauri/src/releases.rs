@@ -1,10 +1,14 @@
 use std::{env, fs};
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use crate::{
     activity::{current_unix_seconds, record_activity},
     godot::{normalize_release_repositories, OFFICIAL_RELEASE_REPOSITORY},
     models::{GodotRelease, HubSettings, ReleaseCache, ReleaseCacheInfo},
     paths::{config_dir, release_cache_path},
+    secrets,
     state::read_state,
 };
 
@@ -99,8 +103,18 @@ fn write_release_cache(
         releases,
     };
     let data = serde_json::to_string_pretty(&cache).map_err(|error| error.to_string())?;
-    fs::write(path, data).map_err(|error| error.to_string())
+    fs::write(&path, data).map_err(|error| error.to_string())?;
+    restrict_file_permissions(&path);
+    Ok(())
 }
+
+#[cfg(unix)]
+fn restrict_file_permissions(path: &std::path::Path) {
+    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+}
+
+#[cfg(not(unix))]
+fn restrict_file_permissions(_path: &std::path::Path) {}
 
 pub(crate) fn http_client() -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
@@ -113,6 +127,7 @@ pub(crate) fn github_token(settings: &HubSettings) -> Option<String> {
     env::var("GITHUB_TOKEN")
         .or_else(|_| env::var("GH_TOKEN"))
         .ok()
+        .or_else(|| secrets::github_token())
         .or_else(|| Some(settings.github_token.clone()))
         .map(|token| token.trim().to_string())
         .filter(|token| !token.is_empty())
@@ -142,6 +157,16 @@ pub(crate) fn clear_release_cache() -> Result<ReleaseCacheInfo, String> {
     let state = read_state()?;
     let repositories = current_release_repositories(&state.settings)?;
 
+    clear_release_cache_files();
+    record_activity("info", "Release cache cleared.");
+    Ok(release_cache_info_for(
+        &repositories,
+        RELEASE_CATALOG_PAGE_SIZE,
+        1,
+    ))
+}
+
+pub(crate) fn clear_release_cache_files() {
     if let Ok(entries) = fs::read_dir(config_dir()) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -153,13 +178,6 @@ pub(crate) fn clear_release_cache() -> Result<ReleaseCacheInfo, String> {
             }
         }
     }
-
-    record_activity("info", "Release cache cleared.");
-    Ok(release_cache_info_for(
-        &repositories,
-        RELEASE_CATALOG_PAGE_SIZE,
-        1,
-    ))
 }
 
 #[tauri::command]

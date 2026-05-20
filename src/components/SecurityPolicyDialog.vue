@@ -19,6 +19,7 @@ const { t } = useI18n();
       <div class="mt-4 grid gap-3 text-sm text-base-content/75">
         <p>{{ t("security.ruleCredentials") }}</p>
         <p>{{ t("security.ruleLocal") }}</p>
+        <p>{{ t("security.ruleCanary") }}</p>
         <p>{{ t("security.ruleReporting") }}</p>
       </div>
       <div class="modal-action">

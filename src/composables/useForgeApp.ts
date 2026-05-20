@@ -47,6 +47,7 @@ export function useForgeApp() {
       defaultProjectPath: "",
       releaseRepositories: [],
       githubToken: "",
+      githubTokenConfigured: false,
     },
   });
 
@@ -69,6 +70,7 @@ export function useForgeApp() {
     defaultProjectPath: "",
     releaseRepositories: [] as string[],
     githubToken: "",
+    clearGithubToken: false,
     migrateExistingPaths: false,
   });
 
@@ -222,7 +224,8 @@ export function useForgeApp() {
     settingsForm.defaultInstallPath = nextState.settings.defaultInstallPath;
     settingsForm.defaultProjectPath = nextState.settings.defaultProjectPath;
     settingsForm.releaseRepositories = [...nextState.settings.releaseRepositories];
-    settingsForm.githubToken = nextState.settings.githubToken;
+    settingsForm.githubToken = "";
+    settingsForm.clearGithubToken = false;
     settingsForm.migrateExistingPaths = false;
     syncProjectSelection();
   }
@@ -271,10 +274,15 @@ export function useForgeApp() {
 
   async function saveSettings() {
     const previousRepositories = state.settings.releaseRepositories.join("\n");
-    const previousGithubToken = state.settings.githubToken;
+    const previousGithubTokenConfigured = state.settings.githubTokenConfigured;
+    const submittedGithubToken = settingsForm.githubToken.trim();
     await runAction(t("status.pathsSaved"), () => invoke<HubState>("save_settings", { request: settingsForm }));
 
-    if (previousRepositories !== state.settings.releaseRepositories.join("\n") || previousGithubToken !== state.settings.githubToken) {
+    if (
+      previousRepositories !== state.settings.releaseRepositories.join("\n") ||
+      previousGithubTokenConfigured !== state.settings.githubTokenConfigured ||
+      !!submittedGithubToken
+    ) {
       resetReleases();
       await loadReleases();
     }

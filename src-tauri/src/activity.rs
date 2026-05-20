@@ -3,6 +3,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use crate::{models::ActivityLogEntry, paths::activity_log_path};
 
 pub(crate) fn current_unix_seconds() -> u64 {
@@ -36,7 +39,8 @@ pub(crate) fn record_activity(level: &str, message: impl Into<String>) {
         let _ = fs::create_dir_all(parent);
     }
     if let Ok(data) = serde_json::to_string_pretty(&entries) {
-        let _ = fs::write(path, data);
+        let _ = fs::write(&path, data);
+        restrict_file_permissions(&path);
     }
 }
 
@@ -46,3 +50,11 @@ pub(crate) fn read_activity_log() -> Vec<ActivityLogEntry> {
     entries.reverse();
     entries
 }
+
+#[cfg(unix)]
+fn restrict_file_permissions(path: &std::path::Path) {
+    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+}
+
+#[cfg(not(unix))]
+fn restrict_file_permissions(_path: &std::path::Path) {}

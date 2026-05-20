@@ -5,6 +5,7 @@ use crate::{
     filesystem::migrate_registered_paths,
     godot::normalize_release_repositories,
     models::{HubState, UpdateSettingsRequest},
+    secrets,
     state::{default_settings, read_state, write_state},
 };
 
@@ -37,7 +38,14 @@ pub(crate) fn save_settings(request: UpdateSettingsRequest) -> Result<HubState, 
     state.settings.default_project_path = new_project_root.to_string_lossy().to_string();
     state.settings.release_repositories =
         normalize_release_repositories(&request.release_repositories)?;
-    state.settings.github_token = request.github_token.trim().to_string();
+    let github_token = request.github_token.trim();
+    if !github_token.is_empty() {
+        secrets::save_github_token(github_token)?;
+    } else if request.clear_github_token {
+        secrets::clear_github_token()?;
+    }
+    state.settings.github_token = String::new();
+    state.settings.github_token_configured = secrets::github_token_configured();
     state.settings.release_repository = None;
 
     write_state(&state)?;
@@ -48,7 +56,9 @@ pub(crate) fn save_settings(request: UpdateSettingsRequest) -> Result<HubState, 
 #[tauri::command]
 pub(crate) fn restore_default_settings() -> Result<HubState, String> {
     let mut state = read_state()?;
+    let _ = secrets::clear_github_token();
     state.settings = default_settings();
+    state.settings.github_token_configured = secrets::github_token_configured();
 
     write_state(&state)?;
     record_activity("info", "Workspace settings restored to defaults.");

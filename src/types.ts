@@ -27,6 +27,8 @@ export type HubState = {
     releaseRepositories: string[];
     /** Optional GitHub token used to raise release API rate limits. */
     githubToken: string;
+    /** True when a token is stored in the operating system secret store. */
+    githubTokenConfigured: boolean;
   };
 };
 
@@ -72,6 +74,14 @@ export type DiagnosticCheck = {
 export type WorkspaceDiagnostics = {
   checks: DiagnosticCheck[];
   cache: ReleaseCacheInfo;
+};
+
+export type PrivacyReport = {
+  appDataDir: string;
+  state: HubState;
+  releaseCache: ReleaseCacheInfo;
+  activityEntries: ActivityLogEntry[];
+  notes: string[];
 };
 
 export type ActivityLogEntry = {

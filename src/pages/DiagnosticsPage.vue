@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { reactive } from "vue";
+import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "vue-i18n";
-import type { ActivityLogEntry, WorkspaceDiagnostics } from "../types";
+import type { ActivityLogEntry, PrivacyReport, WorkspaceDiagnostics } from "../types";
 
 defineProps<{
   diagnostics: WorkspaceDiagnostics | null;
@@ -15,6 +17,12 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const privacyDialog = reactive({
+  open: false,
+  loading: false,
+  report: null as PrivacyReport | null,
+  error: "",
+});
 
 function cacheAgeLabel(seconds?: number | null) {
   if (seconds == null) return t("settings.cacheNever");
@@ -25,6 +33,38 @@ function cacheAgeLabel(seconds?: number | null) {
 
 function activityDate(timestamp: number) {
   return new Date(timestamp * 1000).toLocaleString();
+}
+
+async function openPrivacyReport() {
+  privacyDialog.open = true;
+  privacyDialog.loading = true;
+  privacyDialog.error = "";
+
+  try {
+    privacyDialog.report = await invoke<PrivacyReport>("export_privacy_report");
+  } catch (caught) {
+    privacyDialog.error = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    privacyDialog.loading = false;
+  }
+}
+
+async function clearAuxiliaryPrivacyData() {
+  privacyDialog.loading = true;
+  privacyDialog.error = "";
+
+  try {
+    privacyDialog.report = await invoke<PrivacyReport>("clear_auxiliary_privacy_data");
+    emit("refreshDiagnostics");
+  } catch (caught) {
+    privacyDialog.error = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    privacyDialog.loading = false;
+  }
+}
+
+function closePrivacyDialog() {
+  privacyDialog.open = false;
 }
 </script>
 
@@ -86,6 +126,21 @@ function activityDate(timestamp: number) {
 
     <aside class="grid content-start gap-5">
       <section class="rounded-xl border border-base-content/10 bg-base-100 p-5">
+        <p class="text-xs font-black uppercase text-primary">{{ t("privacy.title") }}</p>
+        <h2 class="mt-1 text-2xl font-black">{{ t("privacy.localData") }}</h2>
+        <p class="mt-2 text-sm text-base-content/60">{{ t("privacy.body") }}</p>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button class="btn btn-sm btn-primary" type="button" :disabled="privacyDialog.loading || busy" @click="openPrivacyReport">
+            <span v-if="privacyDialog.loading" class="loading loading-spinner loading-xs" />
+            {{ t("privacy.viewReport") }}
+          </button>
+          <button class="btn btn-sm btn-error btn-outline" type="button" :disabled="privacyDialog.loading || busy" @click="clearAuxiliaryPrivacyData">
+            {{ t("privacy.clearAuxiliaryData") }}
+          </button>
+        </div>
+      </section>
+
+      <section class="rounded-xl border border-base-content/10 bg-base-100 p-5">
         <div class="flex flex-col gap-3">
           <div>
             <p class="text-xs font-black uppercase text-primary">{{ t("settings.releaseCache") }}</p>
@@ -101,5 +156,42 @@ function activityDate(timestamp: number) {
         </div>
       </section>
     </aside>
+
+    <dialog class="modal" :open="privacyDialog.open">
+      <div class="modal-box max-w-5xl border border-base-content/10 bg-base-100">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <p class="text-xs font-black uppercase text-primary">{{ t("privacy.title") }}</p>
+            <h3 class="mt-1 text-xl font-black">{{ t("privacy.report") }}</h3>
+          </div>
+          <button class="btn btn-ghost btn-sm" type="button" @click="closePrivacyDialog">
+            {{ t("common.close") }}
+          </button>
+        </div>
+        <div class="mt-5 max-h-[65vh] overflow-y-auto rounded-lg border border-base-content/10 bg-base-300/45 p-4">
+          <div v-if="privacyDialog.loading" class="flex items-center gap-3 text-sm text-base-content/60">
+            <span class="loading loading-spinner loading-sm" />
+            {{ t("privacy.loadingReport") }}
+          </div>
+          <p v-else-if="privacyDialog.error" class="text-sm text-error">{{ privacyDialog.error }}</p>
+          <div v-else-if="privacyDialog.report" class="grid gap-4">
+            <div class="rounded-md bg-base-100 p-3">
+              <p class="text-xs font-black uppercase text-base-content/50">{{ t("privacy.appDataDir") }}</p>
+              <p class="mt-1 break-all text-sm">{{ privacyDialog.report.appDataDir }}</p>
+            </div>
+            <div class="rounded-md bg-base-100 p-3">
+              <p class="text-xs font-black uppercase text-base-content/50">{{ t("privacy.notes") }}</p>
+              <ul class="mt-2 grid list-disc gap-1 pl-4 text-sm text-base-content/70">
+                <li v-for="note in privacyDialog.report.notes" :key="note">{{ note }}</li>
+              </ul>
+            </div>
+            <pre class="whitespace-pre-wrap break-words rounded-md bg-base-100 p-3 font-mono text-xs leading-relaxed text-base-content/80">{{ JSON.stringify(privacyDialog.report, null, 2) }}</pre>
+          </div>
+        </div>
+      </div>
+      <form class="modal-backdrop" method="dialog" @submit.prevent="closePrivacyDialog">
+        <button>{{ t("common.close") }}</button>
+      </form>
+    </dialog>
   </section>
 </template>

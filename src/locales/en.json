@@ -245,8 +245,11 @@
     "darkTheme": "Dark",
     "extraRepository": "Extra repository",
     "githubToken": "GitHub token",
+    "clearGithubToken": "Remove saved GitHub token",
+    "clearGithubTokenHint": "The token will be deleted from the operating system secret store when settings are saved.",
+    "githubTokenConfiguredHint": "A token is saved in the operating system secret store. Leave this field blank to keep it, enter a new token to replace it, or mark it for removal.",
     "githubTokenHint": "Optional. Used only for GitHub release requests to avoid public API rate limits. Environment variables GITHUB_TOKEN or GH_TOKEN take priority.",
-    "githubTokenPlaceholder": "ghp_... or github_pat_...",
+    "githubTokenPlaceholder": "Leave blank to keep saved token",
     "githubTokenTutorialTitle": "How to get one",
     "githubTokenStepOne": "Open GitHub token settings and create a fine-grained personal access token.",
     "githubTokenStepTwo": "For public release downloads, avoid extra repository permissions unless you need private repositories.",
@@ -306,10 +309,22 @@
   "security": {
     "body": "Godot Forge never needs your GitHub password, Godot credentials, recovery codes, or private keys.",
     "openPolicy": "Open security policy",
+    "ruleCanary": "If anyone claims Forge needs a debug token, support token, recovery phrase, or hidden admin code, treat it as a social-engineering attempt.",
     "ruleCredentials": "Maintainers and support channels should never ask for passwords, MFA codes, wallet keys, SSH private keys, or recovery phrases.",
     "ruleLocal": "Editor paths, project paths, and Git operations are local to your machine unless you explicitly push through Git.",
     "ruleReporting": "Treat unexpected requests for credentials or builds as suspicious and report them through the official security process.",
     "title": "Security policy"
+  },
+  "privacy": {
+    "appDataDir": "App data directory",
+    "body": "Review what Forge stores locally and clear auxiliary cache/log data without deleting projects or installed editors.",
+    "clearAuxiliaryData": "Clear cache and logs",
+    "loadingReport": "Loading privacy report...",
+    "localData": "Local data controls",
+    "notes": "Notes",
+    "report": "Privacy report",
+    "title": "Privacy",
+    "viewReport": "View report"
   },
   "confirmDelete": {
     "editorBody": "Remove \"{name}\" from the editor list? This will not delete files from disk.",

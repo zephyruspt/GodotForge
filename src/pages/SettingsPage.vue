@@ -13,6 +13,7 @@ type SettingsForm = {
   defaultProjectPath: string;
   releaseRepositories: string[];
   githubToken: string;
+  clearGithubToken: boolean;
   migrateExistingPaths: boolean;
 };
 
@@ -27,6 +28,7 @@ const props = defineProps<{
   selectedLocale: string;
   selectedTheme: ThemeName;
   busy: boolean;
+  githubTokenConfigured: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -173,7 +175,16 @@ function closeLegalDialog() {
             spellcheck="false"
             :placeholder="t('settings.githubTokenPlaceholder')"
           />
-          <span class="text-xs text-base-content/50">{{ t("settings.githubTokenHint") }}</span>
+          <span class="text-xs text-base-content/50">
+            {{ githubTokenConfigured ? t("settings.githubTokenConfiguredHint") : t("settings.githubTokenHint") }}
+          </span>
+          <label v-if="githubTokenConfigured" class="flex items-start gap-3 rounded-md border border-base-content/10 bg-base-content/[0.03] p-3">
+            <input v-model="settingsForm.clearGithubToken" class="checkbox checkbox-sm checkbox-error mt-0.5 cursor-pointer" type="checkbox" />
+            <span class="grid gap-1">
+              <span class="text-sm font-bold text-base-content/80">{{ t("settings.clearGithubToken") }}</span>
+              <span class="text-xs text-base-content/55">{{ t("settings.clearGithubTokenHint") }}</span>
+            </span>
+          </label>
           <div class="rounded-md border border-base-content/10 bg-base-content/[0.03] p-3 text-xs text-base-content/60">
             <p class="font-bold text-base-content/80">{{ t("settings.githubTokenTutorialTitle") }}</p>
             <ol class="mt-2 grid list-decimal gap-1 pl-4">

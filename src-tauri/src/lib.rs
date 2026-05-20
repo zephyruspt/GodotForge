@@ -6,8 +6,10 @@ mod git;
 mod godot;
 mod models;
 mod paths;
+mod privacy;
 mod projects;
 mod releases;
+mod secrets;
 mod settings;
 mod state;
 mod system;
@@ -17,6 +19,7 @@ use activity::*;
 use diagnostics::*;
 use editors::*;
 use git::*;
+use privacy::*;
 use projects::*;
 use releases::*;
 use settings::*;
@@ -106,7 +109,15 @@ fn app_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         handle,
         "File",
         true,
-        &[&dashboard, &projects, &editors, &diagnostics, &settings, &file_separator, &close],
+        &[
+            &dashboard,
+            &projects,
+            &editors,
+            &diagnostics,
+            &settings,
+            &file_separator,
+            &close,
+        ],
     )?;
 
     let undo = PredefinedMenuItem::undo(handle, None)?;
@@ -173,6 +184,8 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     sanitize_gtk_modules_for_linux();
 
+    let _ = secrets::initialize_secret_store();
+
     let builder = tauri::Builder::default();
 
     #[cfg(target_os = "macos")]
@@ -218,6 +231,8 @@ pub fn run() {
             load_hub_state,
             detect_system_profile,
             read_legal_document,
+            export_privacy_report,
+            clear_auxiliary_privacy_data,
             get_workspace_diagnostics,
             get_release_cache_info,
             clear_release_cache,

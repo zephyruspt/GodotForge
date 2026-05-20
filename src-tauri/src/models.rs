@@ -30,8 +30,10 @@ pub(crate) struct HubSettings {
     pub(crate) default_project_path: String,
     #[serde(default)]
     pub(crate) release_repositories: Vec<String>,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[serde(default)]
     pub(crate) github_token: String,
+    #[serde(default)]
+    pub(crate) github_token_configured: bool,
     #[serde(default, skip_serializing)]
     pub(crate) release_repository: Option<String>,
 }
@@ -180,6 +182,8 @@ pub(crate) struct UpdateSettingsRequest {
     pub(crate) release_repositories: Vec<String>,
     pub(crate) github_token: String,
     #[serde(default)]
+    pub(crate) clear_github_token: bool,
+    #[serde(default)]
     pub(crate) migrate_existing_paths: bool,
 }
 
@@ -237,6 +241,16 @@ pub(crate) struct GitRemoteRequest {
 pub(crate) struct LegalDocument {
     pub(crate) title: String,
     pub(crate) body: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PrivacyReport {
+    pub(crate) app_data_dir: String,
+    pub(crate) state: HubState,
+    pub(crate) release_cache: ReleaseCacheInfo,
+    pub(crate) activity_entries: Vec<ActivityLogEntry>,
+    pub(crate) notes: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]

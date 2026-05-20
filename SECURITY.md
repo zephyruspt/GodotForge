@@ -26,9 +26,13 @@ Godot Forge maintainers will never ask for:
 
 Treat unexpected credential requests, private build links, or pressure to bypass normal review as suspicious.
 
+Godot Forge has no hidden support token, debug token, admin override code, recovery phrase, or maintainer unlock code. Anyone asking for one is attempting social engineering.
+
 ## Local Data
 
 Godot Forge stores editor registrations, project paths, and settings in the local user configuration directory. Git operations run against local project folders and only contact remotes when the user explicitly performs a Git action such as push.
+
+Privacy reports redact GitHub tokens. On Unix platforms, state and activity-log files are written with owner-only permissions when supported by the operating system.
 
 ## Brand and Impersonation
 

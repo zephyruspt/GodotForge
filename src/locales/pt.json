@@ -245,8 +245,11 @@
     "darkTheme": "Escuro",
     "extraRepository": "Repositório extra",
     "githubToken": "Token do GitHub",
+    "clearGithubToken": "Remover token do GitHub salvo",
+    "clearGithubTokenHint": "O token será apagado do armazenamento seguro do sistema operacional ao salvar as configurações.",
+    "githubTokenConfiguredHint": "Existe um token salvo no armazenamento seguro do sistema operacional. Deixe em branco para manter, digite um novo token para substituir ou marque para remover.",
     "githubTokenHint": "Opcional. Usado apenas para requests de releases do GitHub e para evitar limites da API pública. As variáveis GITHUB_TOKEN ou GH_TOKEN têm prioridade.",
-    "githubTokenPlaceholder": "ghp_... ou github_pat_...",
+    "githubTokenPlaceholder": "Deixe em branco para manter o token salvo",
     "githubTokenTutorialTitle": "Como pegar um token",
     "githubTokenStepOne": "Abra as configurações de tokens do GitHub e crie um personal access token fine-grained.",
     "githubTokenStepTwo": "Para baixar releases públicas, evite permissões extras de repositório, a menos que precise acessar repositórios privados.",
@@ -306,10 +309,22 @@
   "security": {
     "body": "O Godot Forge nunca precisa da sua senha do GitHub, credenciais da Godot, códigos de recuperação ou chaves privadas.",
     "openPolicy": "Abrir política de segurança",
+    "ruleCanary": "Se alguém disser que o Forge precisa de debug token, token de suporte, frase de recuperação ou código admin escondido, trate como tentativa de engenharia social.",
     "ruleCredentials": "Mantenedores e canais de suporte nunca devem pedir senhas, códigos MFA, chaves de carteira, chaves SSH privadas ou frases de recuperação.",
     "ruleLocal": "Paths de editores, paths de projetos e operações Git ficam locais na sua máquina, exceto quando você explicitamente faz push pelo Git.",
     "ruleReporting": "Trate pedidos inesperados de credenciais ou builds como suspeitos e reporte pelo processo oficial de segurança.",
     "title": "Política de segurança"
+  },
+  "privacy": {
+    "appDataDir": "Diretório de dados da app",
+    "body": "Veja o que o Forge guarda localmente e limpe cache/logs auxiliares sem apagar projetos ou editores instalados.",
+    "clearAuxiliaryData": "Limpar cache e logs",
+    "loadingReport": "Carregando relatório de privacidade...",
+    "localData": "Controles de dados locais",
+    "notes": "Notas",
+    "report": "Relatório de privacidade",
+    "title": "Privacidade",
+    "viewReport": "Ver relatório"
   },
   "confirmDelete": {
     "editorBody": "Remover \"{name}\" da lista de editores? Isso não apaga arquivos do disco.",

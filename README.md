@@ -129,6 +129,14 @@ You may not use the Godot Forge logos, marks, or brand assets in redistributed p
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting, social engineering guidance, and credential-handling expectations.
 
+## Privacy
+
+Godot Forge is local-first and stores workspace data on the user's machine. See [PRIVACY.md](PRIVACY.md) for stored data categories, user controls, privacy-report behavior, and operator notes for GDPR, UK GDPR, LGPD, CCPA/CPRA, and similar frameworks.
+
+## AI Assistance Notice
+
+Parts of this project were developed with assistance from AI coding tools. All AI-assisted contributions are reviewed, edited, and maintained by the project authors, who remain responsible for source code, licensing, security, privacy, and release decisions.
+
 ## License
 
 The source code is licensed under the Apache License 2.0. See [LICENSE](LICENSE).

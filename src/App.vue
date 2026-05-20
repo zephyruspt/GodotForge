@@ -332,6 +332,7 @@ const {
               v-model:selected-theme="selectedTheme"
               :settings-form="settingsForm"
               :busy="!!busyAction"
+              :github-token-configured="state.settings.githubTokenConfigured"
               @browse="browsePath"
               @save="saveSettings"
               @restore-defaults="restoreDefaultSettings"
