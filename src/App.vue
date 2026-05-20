@@ -59,6 +59,7 @@ if (savedLocale === "en" || savedLocale === "pt") {
 
 const sections: Section[] = ["projects", "editors", "settings"];
 const releasePageSize = 6;
+const releaseCatalogPageSize = 100;
 const releaseChannelFilters = ["all", "stable", "preview"] as const;
 const releaseVariantFilters = ["all", "standard", "dotnet"] as const;
 const releasePlatformFilters = ["linux", "win", "macos"] as const;
@@ -87,7 +88,6 @@ const workspaceScanState = reactive({
 const releasesLoaded = ref(false);
 const releaseFiltersOpen = ref(false);
 const releasePage = ref(1);
-const hasMoreReleases = ref(true);
 const releaseQuery = ref("");
 const releaseRepositoryFilter = ref("all");
 const releaseChannelFilter = ref<"all" | "stable" | "preview">("all");
@@ -195,7 +195,7 @@ const projectEditor = computed(() => {
   return state.editors.find((editor) => editor.id === project?.editorId) ?? defaultEditor.value;
 });
 
-const filteredReleases = computed(() => {
+const filteredReleaseCatalog = computed(() => {
   const query = releaseQuery.value.trim().toLowerCase();
   return releases.value.filter((release) => {
     if (releaseRepositoryFilter.value !== "all" && release.sourceRepository !== releaseRepositoryFilter.value) {
@@ -210,7 +210,9 @@ const filteredReleases = computed(() => {
     return haystack.toLowerCase().includes(query);
   });
 });
-const releaseResultLabel = computed(() => t("releases.resultCount", { count: filteredReleases.value.length }));
+const filteredReleases = computed(() => filteredReleaseCatalog.value.slice(0, releasePage.value * releasePageSize));
+const hasMoreReleases = computed(() => filteredReleases.value.length < filteredReleaseCatalog.value.length);
+const releaseResultLabel = computed(() => t("releases.resultCount", { count: filteredReleaseCatalog.value.length }));
 
 function clearReleaseFilters() {
   releaseQuery.value = "";
@@ -535,26 +537,13 @@ async function loadAppMetadata() {
   }
 }
 
-async function loadReleases(options: { append?: boolean } = {}) {
+async function loadReleases() {
   busyAction.value = t("status.fetchingReleases");
   error.value = "";
 
   try {
-    const nextPage = options.append ? releasePage.value + 1 : 1;
-    const nextReleases = await invoke<GodotRelease[]>("fetch_godot_releases", { limit: releasePageSize, page: nextPage });
-    let addedCount = nextReleases.length;
-
-    if (options.append) {
-      const knownKeys = new Set(releases.value.map((release) => `${release.sourceRepository}:${release.id}`));
-      const uniqueReleases = nextReleases.filter((release) => !knownKeys.has(`${release.sourceRepository}:${release.id}`));
-      addedCount = uniqueReleases.length;
-      releases.value = [...releases.value, ...uniqueReleases];
-    } else {
-      releases.value = nextReleases;
-    }
-
-    releasePage.value = nextPage;
-    hasMoreReleases.value = addedCount > 0 && nextReleases.length >= releasePageSize * releaseSourceCount.value;
+    releases.value = await invoke<GodotRelease[]>("fetch_godot_releases", { limit: releaseCatalogPageSize, page: 1 });
+    releasePage.value = 1;
     releasesLoaded.value = true;
     status.value = t("status.releasesLoaded");
   } catch (caught) {
@@ -565,7 +554,7 @@ async function loadReleases(options: { append?: boolean } = {}) {
 }
 
 function loadMoreReleases() {
-  return loadReleases({ append: true });
+  releasePage.value += 1;
 }
 
 async function createProject() {
@@ -633,7 +622,6 @@ async function saveSettings() {
     releasesLoaded.value = false;
     releases.value = [];
     releasePage.value = 1;
-    hasMoreReleases.value = true;
     await loadReleases();
   }
 
@@ -969,6 +957,13 @@ watch(selectedTheme, (theme) => {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem(themeStorageKey, theme);
 });
+
+watch(
+  [releaseQuery, releaseRepositoryFilter, releaseChannelFilter, releaseVariantFilter, releasePlatformFilter, releaseArchFilter],
+  () => {
+    releasePage.value = 1;
+  },
+);
 
 watch([status, error, busyAction], ([nextStatus, nextError, nextBusyAction]) => {
   clearToastTimer();

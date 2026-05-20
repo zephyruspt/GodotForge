@@ -39,6 +39,8 @@ fn default_state() -> HubState {
 
 const OFFICIAL_RELEASE_REPOSITORY: &str = "godotengine/godot";
 const RELEASE_CACHE_TTL_SECONDS: u64 = 60 * 60 * 6;
+const RELEASE_CATALOG_PAGE_SIZE: usize = 100;
+const RELEASE_CATALOG_MAX_PAGES: usize = 5;
 
 fn current_unix_seconds() -> u64 {
     SystemTime::now()
@@ -220,10 +222,12 @@ fn fetch_godot_releases(
     repositories.extend(normalize_release_repositories(
         &state.settings.release_repositories,
     )?);
-    let max_items = limit.unwrap_or(8).clamp(1, 20);
-    let page = page.unwrap_or(1).clamp(1, 50);
+    let max_items = limit
+        .unwrap_or(RELEASE_CATALOG_PAGE_SIZE)
+        .clamp(1, RELEASE_CATALOG_PAGE_SIZE);
+    let start_page = page.unwrap_or(1).clamp(1, 50);
 
-    if let Some(releases) = fresh_cached_releases(&repositories, max_items, page) {
+    if let Some(releases) = fresh_cached_releases(&repositories, max_items, start_page) {
         return Ok(releases);
     }
 
@@ -232,61 +236,75 @@ fn fetch_godot_releases(
     let mut releases = Vec::new();
 
     for repository in &repositories {
-        let url = format!(
-            "https://api.github.com/repos/{repository}/releases?per_page={max_items}&page={page}"
-        );
-        let mut request = client
-            .get(url)
-            .header("Accept", "application/vnd.github+json");
+        for page in start_page..(start_page + RELEASE_CATALOG_MAX_PAGES) {
+            let url = format!(
+                "https://api.github.com/repos/{repository}/releases?per_page={max_items}&page={page}"
+            );
+            let mut request = client
+                .get(url)
+                .header("Accept", "application/vnd.github+json");
 
-        if let Some(token) = &token {
-            request = request.bearer_auth(token);
+            if let Some(token) = &token {
+                request = request.bearer_auth(token);
+            }
+
+            let response = match request.send() {
+                Ok(response) => response,
+                Err(error) => {
+                    if let Some(cached_releases) =
+                        stale_cached_releases(&repositories, max_items, start_page)
+                    {
+                        return Ok(cached_releases);
+                    }
+
+                    return Err(github_release_error(error));
+                }
+            };
+            let response = match response.error_for_status() {
+                Ok(response) => response,
+                Err(error) => {
+                    if let Some(cached_releases) =
+                        stale_cached_releases(&repositories, max_items, start_page)
+                    {
+                        return Ok(cached_releases);
+                    }
+
+                    return Err(github_release_error(error));
+                }
+            };
+
+            let mut repository_releases = match response.json::<Vec<GodotRelease>>() {
+                Ok(repository_releases) => repository_releases,
+                Err(error) => {
+                    if let Some(cached_releases) =
+                        stale_cached_releases(&repositories, max_items, start_page)
+                    {
+                        return Ok(cached_releases);
+                    }
+
+                    return Err(github_release_error(error));
+                }
+            };
+
+            if repository_releases.is_empty() {
+                break;
+            }
+
+            for release in &mut repository_releases {
+                release.source_repository = repository.clone();
+            }
+
+            let fetched_count = repository_releases.len();
+            releases.extend(repository_releases);
+
+            if fetched_count < max_items {
+                break;
+            }
         }
-
-        let response = match request.send() {
-            Ok(response) => response,
-            Err(error) => {
-                if let Some(cached_releases) = stale_cached_releases(&repositories, max_items, page)
-                {
-                    return Ok(cached_releases);
-                }
-
-                return Err(github_release_error(error));
-            }
-        };
-        let response = match response.error_for_status() {
-            Ok(response) => response,
-            Err(error) => {
-                if let Some(cached_releases) = stale_cached_releases(&repositories, max_items, page)
-                {
-                    return Ok(cached_releases);
-                }
-
-                return Err(github_release_error(error));
-            }
-        };
-
-        let mut repository_releases = match response.json::<Vec<GodotRelease>>() {
-            Ok(repository_releases) => repository_releases,
-            Err(error) => {
-                if let Some(cached_releases) = stale_cached_releases(&repositories, max_items, page)
-                {
-                    return Ok(cached_releases);
-                }
-
-                return Err(github_release_error(error));
-            }
-        };
-
-        for release in &mut repository_releases {
-            release.source_repository = repository.clone();
-        }
-
-        releases.extend(repository_releases);
     }
 
     releases.sort_by(|left, right| right.published_at.cmp(&left.published_at));
-    let _ = write_release_cache(repositories, max_items, page, releases.clone());
+    let _ = write_release_cache(repositories, max_items, start_page, releases.clone());
     Ok(releases)
 }
 
